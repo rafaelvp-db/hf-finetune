@@ -75,26 +75,22 @@ trainer.train()
 
 review = {"text": "I think this place is not that nice"}
 
-tokenized_text = tokenizer(review["text"], padding="max_length", truncation=True, return_tensors='pt')
-output = trainer.model(**tokenized_text)
-output
+def get_prediction(text):
+  
+  tokenized_text = tokenizer(review["text"], padding="max_length", truncation=True, return_tensors='pt').to("cuda:0")
+  output = trainer.model(**tokenized_text)
+  return output
+
+get_prediction(review)
 
 # COMMAND ----------
 
 review = {"text": "This place is terrible!"}
 
-tokenized_text = tokenizer(review["text"], padding="max_length", truncation=True, return_tensors='pt')
-output = trainer.model(**tokenized_text)
-output
+get_prediction(review)
 
 # COMMAND ----------
 
 review = {"text": "This place is the best!"}
 
-tokenized_text = tokenizer(review["text"], padding="max_length", truncation=True, return_tensors='pt')
-output = trainer.model(**tokenized_text)
-output
-
-# COMMAND ----------
-
-
+get_prediction(review)
