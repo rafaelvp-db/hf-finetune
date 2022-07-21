@@ -55,7 +55,7 @@ def compute_metrics(eval_pred):
 
 from transformers import TrainingArguments, Trainer
 
-training_args = TrainingArguments(output_dir="test_trainer", evaluation_strategy="epoch")
+training_args = TrainingArguments(output_dir="/dbfs/tmp/test_trainer", evaluation_strategy="epoch")
 
 # COMMAND ----------
 
@@ -75,7 +75,7 @@ trainer.train()
 
 review = {"text": "I think this place is not that nice"}
 
-def get_prediction(text):
+def get_prediction(review):
   
   tokenized_text = tokenizer(review["text"], padding="max_length", truncation=True, return_tensors='pt').to("cuda:0")
   output = trainer.model(**tokenized_text)
