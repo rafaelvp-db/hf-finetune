@@ -1,0 +1,10 @@
+wheel
+tqdm
+transformers
+torch
+datasets
+ipython
+jupyter
+pytest
+ipykernel
+scikit-learn
