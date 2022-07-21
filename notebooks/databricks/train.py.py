@@ -94,3 +94,14 @@ get_prediction(review)
 review = {"text": "This place is the best!"}
 
 get_prediction(review)
+
+# COMMAND ----------
+
+import mlflow
+
+model_info = mlflow.pytorch.log_model(trainer.model, artifact_path="model")
+mlflow.register_model(model_info.model_uri, name = "distilbert_yelp")
+
+# COMMAND ----------
+
+
