@@ -3,6 +3,10 @@
 
 # COMMAND ----------
 
+!more /dbfs/tmp/ubuntu/dialogs/99/1.tsv
+
+# COMMAND ----------
+
 from pyspark.sql.types import StructType, StructField, StringType, DateType, TimestampType
 
 schema = StructType([ \
@@ -12,7 +16,7 @@ schema = StructType([ \
     StructField("text", StringType(),True), \
   ])
 
-df = spark.read.format("csv").load('dbfs:/tmp/ubuntu/dialogs/', sep = "\t", header = True, schema = schema)
+df = spark.read.format("csv").load('dbfs:/tmp/ubuntu/dialogs/9*', sep = "\t", header = True, schema = schema)
 
 # COMMAND ----------
 
