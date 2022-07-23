@@ -1,12 +1,12 @@
 # Databricks notebook source
-!pip install transformers && pip install datasets
+!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade datasets
 
 # COMMAND ----------
 
 from datasets import load_dataset
 
 dataset = load_dataset("yelp_review_full")
-dataset["train"][100]
+dataset
 
 # COMMAND ----------
 
