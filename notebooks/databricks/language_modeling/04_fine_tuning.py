@@ -27,10 +27,38 @@ dataset
 # COMMAND ----------
 
 tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
+
+# COMMAND ----------
+
+tuple([1,2,3])
+
+# COMMAND ----------
+
 import torch
 
-def prepare_dataset(batch, tokenizer):
+context_columns = [f"context/{idx}" for idx in range(1,6)]
+
+def prepare_dataset(examples, eos_token):
+
+  print(examples["label", "context/1"])
+  context = [eos_token.join(item) for item in examples.items()]
+  print(context)
+  result = {"context": tuple(context)}
+  return result
+  
+train_dataset_processed = dataset.rename_column("context", "label")
+train_dataset_processed = train_dataset_processed.map(
+  lambda batch: prepare_dataset(batch, tokenizer.eos_token),
+  batched = True
+)
+
+train_dataset_processed["train"]
+
+# COMMAND ----------
+
+def tokenize(batch, tokenizer):
   tokenizer.pad_token = tokenizer.eos_token
+  
   result = {
     "labels": tokenizer(
       batch["context"],
@@ -38,18 +66,19 @@ def prepare_dataset(batch, tokenizer):
       return_attention_mask = False,
       padding = True,
       truncation = True
-    ),
+    )["input_ids"],
+    "input_ids":
   }
   return result
-  
-train_dataset_processed = dataset.map(
-  lambda batch: prepare_dataset(batch, tokenizer),
-  remove_columns = ["context"] + [f"context/{idx}" for idx in range(1,6)]
-)
 
 # COMMAND ----------
 
 !rm -rf /dbfs/tmp/ubuntu/trainer/
+
+# COMMAND ----------
+
+test_sentence = "This is a test." + tokenizer.eos_token + "And this is another one."
+tokenizer(test_sentence)
 
 # COMMAND ----------
 
@@ -69,6 +98,38 @@ trainer = Trainer(
   train_dataset = dataset["train"],
   data_collator = collator,
 )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC 
+# MAGIC ## Understanding GPT2 Finetuning
+
+# COMMAND ----------
+
+import torch
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+model = GPT2LMHeadModel.from_pretrained("gpt2")
+
+# COMMAND ----------
+
+inputs = tokenizer("Hello, my dog is cute.", return_tensors="pt")
+outputs = model.generate(**inputs)
+
+#Print output for each sequence generated above
+for i, beam in enumerate(outputs):
+  print("{}: {}".format(i, tokenizer.decode(beam, skip_special_tokens=True)))
+  print()
+
+# COMMAND ----------
+
+inputs
+
+# COMMAND ----------
+
+model.forward()
 
 # COMMAND ----------
 

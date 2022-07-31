@@ -16,19 +16,19 @@ from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer, DataCollatorForLanguageModeling, TextDataset
 from typing import List, Tuple, Dict
 
+# COMMAND ----------
 
-def prepare_dataset(df, tokenizer):
-  df = df.rename(columns={"context": "target"})
-  collator = DataCollatorWithPadding()
-  features = [tokenizer(list(df[column]))]
-  df_train, df_test = train_test_split(df)
+df = spark.sql("select * from ubuntu_contextualized").toPandas()
+df = df.rename(columns = {"context": "label"})
 
 # COMMAND ----------
 
-import pyarrow as pa
+df["context"] = df.drop("label", axis=1).agg("<EOS>".join, axis=1)
+df = df.loc[:, ["label", "context"]]
 
-df = spark.sql("select * from ubuntu_contextualized").toPandas()
-table = pa.Table.from_pandas(df)
+# COMMAND ----------
+
+df
 
 # COMMAND ----------
 
@@ -37,10 +37,8 @@ from datasets.splits import NamedSplit
 from sklearn.model_selection import train_test_split
 
 df_train, df_test = train_test_split(df, test_size=0.15)
-train_table = pa.Table.from_pandas(df_train)
-test_table = pa.Table.from_pandas(df_test)
 
-dataset = DatasetDict({
+"""dataset = DatasetDict({
   "train": Dataset(
     arrow_table = train_table, 
     split = NamedSplit("train")
@@ -49,6 +47,11 @@ dataset = DatasetDict({
     arrow_table = test_table,
     split = NamedSplit("test")
   )
+})"""
+
+dataset = DatasetDict({
+  "train": Dataset.from_pandas(df_train, split = NamedSplit("train")),
+  "test": Dataset.from_pandas(df_test, split = NamedSplit("test"))
 })
 
 # COMMAND ----------
