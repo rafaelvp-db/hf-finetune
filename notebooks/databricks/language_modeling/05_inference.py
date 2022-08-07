@@ -1,5 +1,5 @@
 # Databricks notebook source
-!ls /tmp/ubuntu/
+!ls -all /tmp/ubuntu
 
 # COMMAND ----------
 
@@ -36,12 +36,13 @@ def ask_question(
   chat_history_ids = model.generate(
     bot_input_ids,
     eos_token_id = tokenizer.eos_token_id,
-    max_length=500,
+    max_length=100,
     pad_token_id = tokenizer.eos_token_id,  
     no_repeat_ngram_size=3,
     do_sample=True, 
     top_k=100, 
     top_p=0.7,
+    repetition_penalty = 50.0,
     temperature=0.5
   )
 
@@ -70,43 +71,9 @@ def predict(model_input):
 # COMMAND ----------
 
 model_input = {
-  "question": "hey",
+  "question": "I have an issue with my monitor.",
   "chat_history_ids": []
 }
 
 answers = predict(model_input)
 answers
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC # Gradio
-
-# COMMAND ----------
-
-def predict(question):
-    print(question)
-    answer, chat_history_ids = ask_question(question, [])
-    return [answer, tokenizer.decode(chat_history_ids)]
-
-# COMMAND ----------
-
-!pip install gradio
-
-# COMMAND ----------
-
-import gradio as gr
-
-# COMMAND ----------
-
-gr.Interface(
-  fn = predict,
-  inputs=["text", "state"],
-  outputs=["chatbot", "state"],
-  flagging_dir="/dbfs/tmp/ubuntu/flagging/"
-).launch(share=True)
-
-# COMMAND ----------
-
-
