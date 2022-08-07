@@ -1,5 +1,10 @@
 # Databricks notebook source
-!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade wheel && pip install pyspark==3.3.0 huggingface_hub==0.7.0 evaluate==0.1.2 datasets
+!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade wheel && pip install pyspark==3.3.0 huggingface_hub==0.7.0 evaluate==0.1.2
+!pip install --upgrade datasets
+
+# COMMAND ----------
+
+!rm -rf /dbfs/tmp/ubuntu/trainer/
 
 # COMMAND ----------
 
@@ -12,6 +17,7 @@ logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
 from transformers import (
   AutoTokenizer,
   AutoModelForCausalLM,
+  DataCollatorWithPadding,
   DataCollatorForLanguageModeling,
   AutoTokenizer,
   Trainer,
@@ -21,7 +27,7 @@ from transformers import (
 import datasets
 import torch
   
-dataset = datasets.load_from_disk("/tmp/ubuntu/hf_dataset/")
+dataset = datasets.load_from_disk("/tmp/ubuntu/dataset")
 dataset
 
 # COMMAND ----------
@@ -30,242 +36,86 @@ tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
 
 # COMMAND ----------
 
-tuple([1,2,3])
-
-# COMMAND ----------
-
-import torch
-
-context_columns = [f"context/{idx}" for idx in range(1,6)]
-
-def prepare_dataset(examples, eos_token):
-
-  print(examples["label", "context/1"])
-  context = [eos_token.join(item) for item in examples.items()]
-  print(context)
-  result = {"context": tuple(context)}
-  return result
-  
-train_dataset_processed = dataset.rename_column("context", "label")
-train_dataset_processed = train_dataset_processed.map(
-  lambda batch: prepare_dataset(batch, tokenizer.eos_token),
-  batched = True
-)
-
-train_dataset_processed["train"]
+print(f"Model max length: {tokenizer.model_max_length}")
+print(f"Model max length single sentence: {tokenizer.max_len_single_sentence}")
+print(f"Model max_model_input_sizes: {tokenizer.max_model_input_sizes}")
 
 # COMMAND ----------
 
 def tokenize(batch, tokenizer):
   tokenizer.pad_token = tokenizer.eos_token
+  batch["context"] = batch["context"].replace("<EOS>", tokenizer.eos_token)
   
-  result = {
-    "labels": tokenizer(
-      batch["context"],
+  input_ids = tokenizer(
+    batch["context"],
+    return_tensors = "pt",
+    return_attention_mask = False,
+    padding = True,
+    truncation = True
+  )["input_ids"][0]
+  
+  labels = tokenizer(
+      batch["label"],
       return_tensors = "pt",
       return_attention_mask = False,
-      padding = True,
+      padding = "max_length",
+      max_length = 1024,
       truncation = True
-    )["input_ids"],
-    "input_ids":
+    )["input_ids"][0]
+  
+  result = {
+    "input_ids": input_ids,
+    "labels": labels
   }
+  
   return result
 
 # COMMAND ----------
 
-!rm -rf /dbfs/tmp/ubuntu/trainer/
+dataset = dataset.map(lambda x: tokenize(x, tokenizer), remove_columns = ["label", "context"])
 
 # COMMAND ----------
 
-test_sentence = "This is a test." + tokenizer.eos_token + "And this is another one."
-tokenizer(test_sentence)
+print("Sample (encoded) input_ids: ", dataset["train"]["input_ids"][0][:10])
+print("Sample (encoded) labels: ", dataset["train"]["labels"][0][:10])
+
+# COMMAND ----------
+
+def compute_metrics(eval_pred):
+    predictions, labels = eval_pred
+    #predictions = np.argmax(predictions, axis=1)
+    perplexity = load("perplexity", module_type="metric")
+    return perplexity.compute(predictions = predictions, model_id='gpt2')
 
 # COMMAND ----------
 
 model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-small")
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
-collator = DataCollatorForLanguageModeling(tokenizer = tokenizer, mlm = False)
+model
+
+# COMMAND ----------
+
+tokenizer.pad_token = tokenizer.eos_token
+collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = 1024)
 
 args = TrainingArguments(
   output_dir = "/dbfs/tmp/ubuntu/trainer/",
   overwrite_output_dir = True,
-  per_device_train_batch_size = 12
+  per_device_train_batch_size = 4
 )
 
 trainer = Trainer(
+  data_collator = collator,
+  compute_metrics = compute_metrics,
   model = model,
   args = args,
   train_dataset = dataset["train"],
-  data_collator = collator,
+  eval_dataset = dataset["test"],
+  tokenizer = tokenizer
 )
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC ## Understanding GPT2 Finetuning
-
-# COMMAND ----------
-
-import torch
-from transformers import GPT2Tokenizer, GPT2LMHeadModel
-
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-model = GPT2LMHeadModel.from_pretrained("gpt2")
-
-# COMMAND ----------
-
-inputs = tokenizer("Hello, my dog is cute.", return_tensors="pt")
-outputs = model.generate(**inputs)
-
-#Print output for each sequence generated above
-for i, beam in enumerate(outputs):
-  print("{}: {}".format(i, tokenizer.decode(beam, skip_special_tokens=True)))
-  print()
-
-# COMMAND ----------
-
-inputs
-
-# COMMAND ----------
-
-model.forward()
 
 # COMMAND ----------
 
 trainer.train()
-
-# COMMAND ----------
-
-df_collated = df.copy()
-df_collated["_collated_context"] = df.drop("context", axis=1).apply(lambda x: tokenizer.eos_token.join(x.astype(str)))
-
-
-# COMMAND ----------
-
-from torch.nn import functional as F
-
-def collate(tensor_list) -> torch.TensorType:
-  
-  padded_list = []
-  max_size = max([tensor.shape[1] for tensor in tensor_list])
-  for tensor in tensor_list:
-    diff = max_size - tensor.shape[1]
-    padded_tensor = F.pad(tensor, (0, diff), value = tokenizer.eos_token_id)
-    padded_list.append(padded_tensor)
-  return padded_list
-  
-
-def tokenize(df, tokenizer, eos = True):
-  tokenized_list = []
-  df["_collated_context"] = df.apply(lambda x: tokenizer.eos_token.join(x))
-    preprocessed_text = tokenizer(tokenizer.eos_token.join(row), return_attention_mask = False, return_tensors = "pt")["input_ids"]
-    eos_token = torch.tensor([[tokenizer.eos_token_id]])
-    tokenized = torch.cat((encoding_tensor, eos_token), dim=1)
-    encoding_tensor["input_ids"]
-    tokenized_list.append(tokenized)
-  padded_tensor = collate(tokenized_list)
-  return padded_tensor
-
-# COMMAND ----------
-
-tokenized_features = tokenized
-tokenizer(list(df["context"].values), return_tensors = "pt", return_attention_mask = False, padding = True, truncation = True)
-
-# COMMAND ----------
-
-tensor_input
-
-# COMMAND ----------
-
-import torch
-
-encoding_list = []
-for _,row in df.drop("context", axis=1).iterrows():
-  encoding_row = []
-  tokenized = tokenizer(list(row.values.astype(str)), return_attention_mask = False)
-  for inputs in tokenized["input_ids"]:
-    encoding = inputs + [tokenizer.eos_token_id]
-    encoding_row.extend(encoding)
-  encoding_list.append(encoding_row)
-  
-torch.tensor(encoding_list)
-
-# COMMAND ----------
-
-list(df.values.astype(str))
-
-# COMMAND ----------
-
-tokenizer(list(df.values.astype(str)))
-
-# COMMAND ----------
-
-combined_df = df.apply(lambda row: '_'.join(row.values.astype(str)), axis=1)
-
-def tokenize(df, columns, tokenizer):
-  tensor_list = torch.tensor([])
-  tokenizer.pad_token = tokenizer.eos_token
-  for column in columns:
-    tokenized = None
-    tokenized = tokenizer(df["context/1"].values.tolist(), return_tensors="pt", padding=True, truncation=True)
-    eos_token_column = torch.reshape(torch.tensor([tokenizer.eos_token_id]
-    tokenized["input_ids"] = torch.cat((encoding, torch.tensor(tokenizer.eos_token_id)), dim=1) for encoding in tokenized["input_ids"]
-    tensor_list.append(tokenized["input_ids"])
-  return torch.tensor(tensor_list)
-
-tokenize(df = df, columns = df.drop("context", axis=1).columns, tokenizer = tokenizer)
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
-tokenizer.pad_token = tokenizer.eos_token
-encodings = tokenizer(mylist, return_tensors="pt", padding=True, truncation=True, return_attention_mask = False)
-torch.reshape(encodings["input_ids"], (1, -1))
-
-# COMMAND ----------
-
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
-tokenizer.pad_token = tokenizer.eos_token
-my_list = ["this is a test", "another one"]
-encodings = tokenizer(my_list, return_tensors="pt", padding=True, truncation=True)
-torch.reshape(encodings["input_ids"], (1, -1))
-
-# COMMAND ----------
-
-# DBTITLE 1,Collate & Tokenize
-from typing import Dict
-
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
-tokenizer.pad_token = tokenizer.eos_token
-
-def tokenize(row, tokenizer, eos = True) -> Dict:
-  tokenized = tokenizer(row, return_tensors="pt", padding=True, truncation=True)
-  eos = torch.reshape(torch.tensor([tokenizer.eos_token_id] * len(tokenized["input_ids"])), (-1, 1))
-  tokenized["input_ids"] = torch.cat((tokenized["input_ids"], eos), dim=1)
-  return tokenized
-
-def get_encodings(df, tokenizer, label = "context"):
-  
-  encodings = []
-  labels = []
-  for _, row in df.iterrows():
-    tokenized_inputs = tokenize(row.drop(label), tokenizer)
-    tokenized_label = tokenize(row[label], tokenizer)
-    encodings.append(tokenized_inputs)
-    labels.append(tokenized_label)
-  
-  return encodings, labels
-
-# COMMAND ----------
-
-from transformers import Trainer, TrainingArguments
-
-training_args = TrainingArguments(output_dir="/dbfs/tmp/ubuntu/test_trainer")
 
 # COMMAND ----------
 
@@ -273,46 +123,30 @@ from evaluate import load
 
 def compute_metrics(eval_pred):
     perplexity = load("perplexity", module_type="metric")
-    return perplexity.compute(predictions=predictions, model_id='gpt2')
+    return perplexity.compute(predictions = predictions, model_id='gpt2')
 
 # COMMAND ----------
 
-from transformers import AutoModelForCausalLM
+def loss_per_example(batch):
+    batch = data_collator(batch)
+    input_ids = torch.tensor(batch["input_ids"], device=device)
+    attention_mask = torch.tensor(batch["attention_mask"], device=device)
+    labels = torch.tensor(batch["labels"], device=device)
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
+    with torch.no_grad():
+        output = model(input_ids, attention_mask)
+        batch["predicted_label"] = torch.argmax(output.logits, axis=1)
 
-df = spark.sql("select * from ubuntu_contextualized").toPandas()
-df_train, df_test = train_test_split(df)
+    loss = torch.nn.functional.cross_entropy(
+        output.logits, labels, reduction="none")
+    batch["loss"] = loss
+    
+    # datasets requires list of NumPy array data types
+    for k, v in batch.items():
+        batch[k] = v.cpu().numpy()
 
-training_encodings, training_labels = get_encodings(df_train, tokenizer = tokenizer)
-testing_encodings, testing_labels = get_encodings(df_test, tokenizer = tokenizer)
-train_df = ConversationDataset(encodings = training_encodings, labels = training_labels)
-test_df = ConversationDataset(encodings = testing_encodings, labels = testing_labels)
-
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-small")
-
-trainer = Trainer(
-    model = model,
-    args=training_args,
-    train_dataset=train_df,
-    eval_dataset=test_df,
-    compute_metrics=compute_metrics,
-)
-
-# COMMAND ----------
-
-df.shape
-
-# COMMAND ----------
-
-len(training_encodings)
-
-# COMMAND ----------
-
-import torch
-
-trainer.train()
-
-# COMMAND ----------
+    return batch
 
 
+losses_ds = imdb_enc['test'].map(
+    loss_per_example, batched=True, batch_size=batch_size)
