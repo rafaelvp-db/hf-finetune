@@ -117,36 +117,34 @@ trainer = Trainer(
 
 trainer.train()
 
+#TODO:
+
+# 1. Trainer callback
+
 # COMMAND ----------
 
 from evaluate import load
 
 def compute_metrics(eval_pred):
     perplexity = load("perplexity", module_type="metric")
+    predictions, labels = eval_pred
     return perplexity.compute(predictions = predictions, model_id='gpt2')
 
 # COMMAND ----------
 
-def loss_per_example(batch):
-    batch = data_collator(batch)
-    input_ids = torch.tensor(batch["input_ids"], device=device)
-    attention_mask = torch.tensor(batch["attention_mask"], device=device)
-    labels = torch.tensor(batch["labels"], device=device)
+trainer.model.save_pretrained("/tmp/ubuntu/model")
 
-    with torch.no_grad():
-        output = model(input_ids, attention_mask)
-        batch["predicted_label"] = torch.argmax(output.logits, axis=1)
+# COMMAND ----------
 
-    loss = torch.nn.functional.cross_entropy(
-        output.logits, labels, reduction="none")
-    batch["loss"] = loss
-    
-    # datasets requires list of NumPy array data types
-    for k, v in batch.items():
-        batch[k] = v.cpu().numpy()
+tokenizer.save_pretrained("/tmp/ubuntu/tokenizer")
 
-    return batch
+# COMMAND ----------
+
+import mlflow
+
+with mlflow.start_run() as run:
+  model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
+
+# COMMAND ----------
 
 
-losses_ds = imdb_enc['test'].map(
-    loss_per_example, batched=True, batch_size=batch_size)
