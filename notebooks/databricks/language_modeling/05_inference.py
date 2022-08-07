@@ -41,8 +41,8 @@ def ask_question(
     no_repeat_ngram_size=3,
     do_sample=True, 
     top_k=100, 
-    top_p=0.7,
-    repetition_penalty = 50.0,
+    top_p=0.8,
+    repetition_penalty = 20.0,
     temperature=0.5
   )
 
@@ -71,9 +71,13 @@ def predict(model_input):
 # COMMAND ----------
 
 model_input = {
-  "question": "I have an issue with my monitor.",
+  "question": "I hate ubuntu.",
   "chat_history_ids": []
 }
 
 answers = predict(model_input)
 answers
+
+# COMMAND ----------
+
+
