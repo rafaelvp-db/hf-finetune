@@ -33,7 +33,7 @@ df
 
 # COMMAND ----------
 
-!rm -rf /dbfs/Shared/ubuntu
+!rm -rf /tmp/ubuntu
 
 # COMMAND ----------
 

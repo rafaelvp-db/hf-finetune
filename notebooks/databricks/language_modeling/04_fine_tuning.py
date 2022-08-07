@@ -32,7 +32,7 @@ dataset
 
 # COMMAND ----------
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
 
 # COMMAND ----------
 
@@ -89,18 +89,47 @@ def compute_metrics(eval_pred):
 
 # COMMAND ----------
 
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-small")
+model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
 model
 
 # COMMAND ----------
+
+from transformers.integrations import MLflowCallback
+import os
+
+callback = MLflowCallback()
+
+os.environ["MLFLOW_EXPERIMENT_NAME"] = "/Users/rafael.pierre@databricks.com/chatbot-ubuntu"
+os.environ["MLFLOW_FLATTEN_PARAMS"] = "1"
+os.environ["HF_MLFLOW_LOG_ARTIFACTS"] = "1"
+os.environ["MLFLOW_NESTED_RUN"] = "1"
+
+# COMMAND ----------
+
+from transformers.integrations import MLflowCallback
 
 tokenizer.pad_token = tokenizer.eos_token
 collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = 1024)
 
 args = TrainingArguments(
   output_dir = "/dbfs/tmp/ubuntu/trainer/",
+  per_device_train_batch_size = 4,
+  learning_rate = 5e-5,
+  weight_decay = 0.0,
+  adam_epsilon = 1e-8,
+  max_grad_norm = 1.0,
+  num_train_epochs = 3,
+  max_steps = -1,
+  warmup_steps = 0,
+  logging_steps = 1000,
+  save_steps = 3500,
+  save_total_limit = None,
+  no_cuda = False,
   overwrite_output_dir = True,
-  per_device_train_batch_size = 4
+  seed = 42,
+  local_rank = -1,
+  fp16 = False,
+  fp16_opt_level = 'O1'
 )
 
 trainer = Trainer(
@@ -110,16 +139,16 @@ trainer = Trainer(
   args = args,
   train_dataset = dataset["train"],
   eval_dataset = dataset["test"],
-  tokenizer = tokenizer
+  tokenizer = tokenizer,
+  callbacks = [callback]
 )
 
 # COMMAND ----------
 
-trainer.train()
+import mlflow
 
-#TODO:
-
-# 1. Trainer callback
+with mlflow.start_run(run_name = "/Users/rafael.pierre@databricks.com/hf-dialogpt-ubuntu") as run:
+  trainer.train()
 
 # COMMAND ----------
 
