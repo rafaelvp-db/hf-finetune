@@ -1,12 +1,22 @@
 # Databricks notebook source
-!ls -all /tmp/ubuntu
+!pip install --upgrade pip && pip install --upgrade transformers
 
 # COMMAND ----------
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.pytorch_utils import *
+from transformers import AutoTokenizer
+import mlflow
+import torch
 
-model = AutoModelForCausalLM.from_pretrained("/tmp/ubuntu/model")
-tokenizer = AutoTokenizer.from_pretrained("/tmp/ubuntu/tokenizer")
+model = mlflow.pytorch.load_model("runs:/c67d625d22ee43e8b70f699e6858ea1b/model")
+model.cuda(1)
+
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+
+# COMMAND ----------
+
+model.deparallelize()
+model.cuda(1)
 
 # COMMAND ----------
 
@@ -29,22 +39,22 @@ def ask_question(
   chat_history_ids = torch.from_numpy(np.array(chat_history_ids))
 
   if (len(chat_history_ids) > 0):
-    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1)
+    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1).cuda(1)
   else:
-    bot_input_ids = new_user_input_ids
+    bot_input_ids = new_user_input_ids.cuda(1)
 
   chat_history_ids = model.generate(
     bot_input_ids,
     eos_token_id = tokenizer.eos_token_id,
-    max_length=100,
+    max_length=max_length,
     pad_token_id = tokenizer.eos_token_id,  
     no_repeat_ngram_size=3,
     do_sample=True, 
     top_k=100, 
-    top_p=0.8,
-    repetition_penalty = 20.0,
-    temperature=0.5
-  )
+    top_p=0.7,
+    repetition_penalty = repetition_penalty,
+    temperature=temperature
+  ).cuda(1)
 
   answer = tokenizer.decode(
     chat_history_ids[:, bot_input_ids.shape[-1]:][0],
@@ -71,7 +81,7 @@ def predict(model_input):
 # COMMAND ----------
 
 model_input = {
-  "question": "I hate ubuntu.",
+  "question": "can you help me?",
   "chat_history_ids": []
 }
 
