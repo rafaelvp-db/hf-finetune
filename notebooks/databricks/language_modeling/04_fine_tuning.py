@@ -18,8 +18,6 @@ from transformers import (
   AutoTokenizer,
   AutoModelForCausalLM,
   DataCollatorWithPadding,
-  DataCollatorForLanguageModeling,
-  AutoTokenizer,
   Trainer,
   TrainingArguments
 )
@@ -50,8 +48,9 @@ def tokenize(batch, tokenizer):
     batch["context"],
     return_tensors = "pt",
     return_attention_mask = False,
-    padding = True,
-    truncation = True
+    padding = "max_length",
+    truncation = True,
+    max_length = 512
   )["input_ids"][0]
   
   labels = tokenizer(
@@ -59,7 +58,7 @@ def tokenize(batch, tokenizer):
       return_tensors = "pt",
       return_attention_mask = False,
       padding = "max_length",
-      max_length = 1024,
+      max_length = 512,
       truncation = True
     )["input_ids"][0]
   
@@ -94,10 +93,7 @@ model
 
 # COMMAND ----------
 
-from transformers.integrations import MLflowCallback
 import os
-
-callback = MLflowCallback()
 
 os.environ["MLFLOW_EXPERIMENT_NAME"] = "/Users/rafael.pierre@databricks.com/chatbot-ubuntu"
 os.environ["MLFLOW_FLATTEN_PARAMS"] = "1"
@@ -106,20 +102,17 @@ os.environ["MLFLOW_NESTED_RUN"] = "1"
 
 # COMMAND ----------
 
-from transformers.integrations import MLflowCallback
-
 tokenizer.pad_token = tokenizer.eos_token
-collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = 1024)
+collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = 512)
 
 args = TrainingArguments(
   output_dir = "/dbfs/tmp/ubuntu/trainer/",
-  per_device_train_batch_size = 4,
+  per_device_train_batch_size = 2,
   learning_rate = 5e-5,
   weight_decay = 0.0,
   adam_epsilon = 1e-8,
   max_grad_norm = 1.0,
   num_train_epochs = 3,
-  max_steps = -1,
   warmup_steps = 0,
   logging_steps = 1000,
   save_steps = 3500,
@@ -128,26 +121,30 @@ args = TrainingArguments(
   overwrite_output_dir = True,
   seed = 42,
   local_rank = -1,
-  fp16 = False,
+  fp16 = True,
   fp16_opt_level = 'O1'
 )
 
 trainer = Trainer(
   data_collator = collator,
   compute_metrics = compute_metrics,
-  model = model,
+  model = model.cuda(),
   args = args,
   train_dataset = dataset["train"],
   eval_dataset = dataset["test"],
-  tokenizer = tokenizer,
-  callbacks = [callback]
+  tokenizer = tokenizer
 )
 
 # COMMAND ----------
 
 import mlflow
+import torch
 
-with mlflow.start_run(run_name = "/Users/rafael.pierre@databricks.com/hf-dialogpt-ubuntu") as run:
+torch.cuda.empty_cache()
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
+
+with mlflow.start_run(run_name = "/Users/rafael.pierre@databricks.com/hf-dialogpt-ubuntu", nested=True) as run:
   trainer.train()
 
 # COMMAND ----------

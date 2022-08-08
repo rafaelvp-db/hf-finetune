@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-
 from typing import List, Tuple, Dict
 
 # COMMAND ----------
@@ -77,7 +76,3 @@ dataset
 # COMMAND ----------
 
 dataset.save_to_disk("/tmp/ubuntu/dataset")
-
-# COMMAND ----------
-
-
