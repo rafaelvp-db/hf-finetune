@@ -1,27 +1,37 @@
 # Databricks notebook source
-!tar -zxvf /dbfs/tmp/ubuntu/dialogs.tgz -C /dbfs/tmp/ubuntu/
+TARGET_DIR = "/dbfs/tmp/persuasion4good"
+!rm -rf {TARGET_DIR} && mkdir {TARGET_DIR} && curl https://gitlab.com/ucdavisnlp/persuasionforgood/-/raw/master/data/FullData/full_dialog.csv?inline=false -o {TARGET_DIR}/full_dialog.csv
+!ls -all {TARGET_DIR}
 
 # COMMAND ----------
 
-!more /dbfs/tmp/ubuntu/dialogs/99/1.tsv
+!head {TARGET_DIR}/full_dialog.csv
 
 # COMMAND ----------
 
-from pyspark.sql.types import StructType, StructField, StringType, DateType, TimestampType
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType, DateType, TimestampType
 
 schema = StructType([ \
-    StructField("date_time", TimestampType(),True), \
-    StructField("person1", StringType(),True), \
-    StructField("person2", StringType(),True), \
-    StructField("text", StringType(),True), \
+    StructField("id", IntegerType(),True), \
+    StructField("utterance", StringType(),True), \
+    StructField("turn", IntegerType(),True), \
+    StructField("agent", IntegerType(),True), \
+    StructField("conversation_id", StringType(),True), \
   ])
 
-df = spark.read.format("csv").load('dbfs:/tmp/ubuntu/dialogs/9*', sep = "\t", header = True, schema = schema)
+DBFS_DIR = TARGET_DIR.replace("/dbfs/", "/")
+
+df = spark.read.format("csv").load(
+  f"{DBFS_DIR}/full_dialog.csv",
+  sep = ",",
+  header =
+  True,
+  schema = schema
+)
+
+display(df)
 
 # COMMAND ----------
 
-df.write.saveAsTable("ubuntu_full")
-
-# COMMAND ----------
-
-
+spark.sql("CREATE DATABASE persuasiondb")
+df.write.saveAsTable("persuasiondb.full_dialog")
