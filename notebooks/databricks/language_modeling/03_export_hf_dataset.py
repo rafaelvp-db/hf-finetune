@@ -8,31 +8,44 @@ import logging
 logger = spark._jvm.org.apache.log4j
 logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
 
-# COMMAND ----------
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-
 from typing import List, Tuple, Dict
 
 # COMMAND ----------
 
-df = spark.sql("select * from ubuntu_contextualized").toPandas()
-df = df.rename(columns = {"context": "label"})
+# MAGIC %md
+# MAGIC 
+# MAGIC ## Reading our data
 
 # COMMAND ----------
 
-df["context"] = df.drop("label", axis=1).agg("<EOS>".join, axis=1)
-df = df.loc[:, ["label", "context"]]
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * from persuasiondb.dialog_contextualized
 
 # COMMAND ----------
 
-df
+# DBTITLE 1,Taking out columns that won't be used
+df_final = spark.sql("select * from persuasiondb.dialog_contextualized") \
+  .drop(
+    "conversation_id",
+    "id",
+    "turn",
+    "agent"
+  )
 
 # COMMAND ----------
 
-!rm -rf /tmp/ubuntu
+df_pandas = df_final.toPandas().fillna("<EOS>")
+df_pandas["context"] = df_pandas.drop("label", axis=1).agg("<EOS>".join, axis=1)
+df_pandas = df_pandas.loc[:, ["label", "context"]]
+df_pandas.head()
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
@@ -41,22 +54,29 @@ from datasets.splits import NamedSplit
 from sklearn.model_selection import train_test_split
 import pyarrow as pa
 
-df_train, df_test = train_test_split(df, test_size=0.15)
+#Clean existing data
+TARGET_DIR = "/tmp/persuasion4good"
+!rm -rf {TARGET_DIR}
+
+#Create training and testing set
+df_train, df_test = train_test_split(df_pandas, test_size=0.15)
 
 def convert_to_arrow(df: pd.DataFrame, preserve_index = False):
 
   schema = pa.schema([
     pa.field('label', pa.string()),
     pa.field('context', pa.string())],
-    metadata={"context": "Conversation contents."})
+    metadata={
+      "context": "Conversation history.",
+      "label": "Agent's response."
+    }
+  )
   table = pa.Table.from_pandas(df, preserve_index = preserve_index, schema = schema)
   return table
 
 train_table = convert_to_arrow(df_train)
 test_table = convert_to_arrow(df_test)
 print(train_table.schema)
-
-# COMMAND ----------
 
 dataset = DatasetDict({
   "train": Dataset(
@@ -69,10 +89,8 @@ dataset = DatasetDict({
   )
 })
 
-# COMMAND ----------
-
 dataset
 
 # COMMAND ----------
 
-dataset.save_to_disk("/tmp/ubuntu/dataset")
+dataset.save_to_disk("/tmp/persuasion4good/dataset")
