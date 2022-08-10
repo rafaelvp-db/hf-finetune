@@ -93,4 +93,8 @@ dataset
 
 # COMMAND ----------
 
-dataset.save_to_disk("/tmp/persuasion4good/dataset")
+dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
+
+# COMMAND ----------
+
+
