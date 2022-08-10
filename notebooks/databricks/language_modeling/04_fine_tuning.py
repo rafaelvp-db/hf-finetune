@@ -174,11 +174,13 @@ print(f"Model info: {model_info}")
 # COMMAND ----------
 
 trainer.save_model("/tmp/persuasion4good/model")
-tokenizer.save_pretrained.save_model("/tmp/persuasion4good/tokenizer")
+tokenizer.save_pretrained("/tmp/persuasion4good/tokenizer")
 
 trainer.save_model("/dbfs/tmp/persuasion4good/model")
-tokenizer.save_pretrained.save_model("/dbfs/tmp/persuasion4good/tokenizer")
+tokenizer.save_pretrained("/dbfs/tmp/persuasion4good/tokenizer")
 
 # COMMAND ----------
 
-
+with mlflow.start_run(run_name = "/Users/rafael.pierre@databricks.com/hf-persuasion4good", nested=True) as run:
+  model = trainer.model
+  model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
