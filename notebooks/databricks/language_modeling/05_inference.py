@@ -8,15 +8,10 @@ from transformers import AutoTokenizer
 import mlflow
 import torch
 
-model = mlflow.pytorch.load_model("runs:/c67d625d22ee43e8b70f699e6858ea1b/model")
-model.cuda(1)
+model = mlflow.pytorch.load_model("runs:/a26ba30c318c424496f37876ef8b9450/model")
+model.cuda(0)
 
 tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-
-# COMMAND ----------
-
-model.deparallelize()
-model.cuda(1)
 
 # COMMAND ----------
 
@@ -26,9 +21,9 @@ import numpy as np
 def ask_question(
   question,
   chat_history_ids = [],
-  max_length = 1000,
-  temperature = 50.0,
-  repetition_penalty = 50.0
+  max_length = 50,
+  temperature = 80.0,
+  repetition_penalty = 70.0
 ):
   
   new_user_input_ids = tokenizer.encode(
@@ -39,9 +34,9 @@ def ask_question(
   chat_history_ids = torch.from_numpy(np.array(chat_history_ids))
 
   if (len(chat_history_ids) > 0):
-    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1).cuda(1)
+    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1).cuda(0)
   else:
-    bot_input_ids = new_user_input_ids.cuda(1)
+    bot_input_ids = new_user_input_ids.cuda(0)
 
   chat_history_ids = model.generate(
     bot_input_ids,
@@ -54,7 +49,7 @@ def ask_question(
     top_p=0.7,
     repetition_penalty = repetition_penalty,
     temperature=temperature
-  ).cuda(1)
+  ).cuda(0)
 
   answer = tokenizer.decode(
     chat_history_ids[:, bot_input_ids.shape[-1]:][0],
@@ -81,13 +76,9 @@ def predict(model_input):
 # COMMAND ----------
 
 model_input = {
-  "question": "can you help me?",
+  "question": "hi.",
   "chat_history_ids": []
 }
 
 answers = predict(model_input)
 answers
-
-# COMMAND ----------
-
-
