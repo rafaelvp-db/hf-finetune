@@ -1,14 +1,14 @@
 # Databricks notebook source
 # MAGIC %sql
 # MAGIC 
-# MAGIC select * from ubuntu order by date_time asc
+# MAGIC select * from persuasiondb.full_dialog order by conversation_id, id asc
 
 # COMMAND ----------
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
-ubuntu_df = spark.sql("select * from ubuntu")
+df_dialog = spark.sql("select * from ubuntu")
 w = Window.orderBy(F.col("person2"), F.col("date_time"))
 ubuntu_lagged_df = ubuntu_df.withColumn("last1", F.lag(F.col("text"), 1).over(w))
 display(ubuntu_lagged_df)

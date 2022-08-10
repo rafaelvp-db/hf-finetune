@@ -24,14 +24,27 @@ DBFS_DIR = TARGET_DIR.replace("/dbfs/", "/")
 df = spark.read.format("csv").load(
   f"{DBFS_DIR}/full_dialog.csv",
   sep = ",",
-  header =
-  True,
+  header = True,
   schema = schema
 )
 
-display(df)
+display(df.take(10))
 
 # COMMAND ----------
 
-spark.sql("CREATE DATABASE persuasiondb")
-df.write.saveAsTable("persuasiondb.full_dialog")
+df.filter("agent is null OR turn is null").count()
+
+# COMMAND ----------
+
+df = df.filter("agent is not NULL AND turn is NOT NULL")
+
+# COMMAND ----------
+
+spark.sql("CREATE DATABASE IF NOT EXISTS persuasiondb")
+df.write.saveAsTable("persuasiondb.full_dialog", mode = "overwrite")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * from persuasiondb.full_dialog ORDER BY conversation_id, id
