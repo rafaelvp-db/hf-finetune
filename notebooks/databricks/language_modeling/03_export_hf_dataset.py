@@ -38,14 +38,23 @@ df_final = spark.sql("select * from persuasiondb.dialog_contextualized") \
 
 # COMMAND ----------
 
-df_pandas = df_final.toPandas().fillna("<EOS>")
-df_pandas["context"] = df_pandas.drop("label", axis=1).agg("<EOS>".join, axis=1)
-df_pandas = df_pandas.loc[:, ["label", "context"]]
-df_pandas.head()
+df_pandas = df_final.toPandas()
+target_columns = reversed([column for column in df_pandas.columns])
+df_pandas = df_pandas.loc[:, target_columns].fillna("")
+df_pandas
 
 # COMMAND ----------
 
-
+def collate(row):
+  collated = ""
+  for i in range(0, len(row)):
+    if row[i] and len(row[i]) > 0:
+      collated += f"{row[i].lower()}<EOS>"
+  return collated
+    
+df_pandas["context"] = df_pandas.drop("label", axis=1).apply(lambda x: collate(x), axis=1)
+df_pandas = df_pandas.loc[:, ["label", "context"]]
+df_pandas.values
 
 # COMMAND ----------
 
@@ -93,8 +102,12 @@ dataset
 
 # COMMAND ----------
 
-dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
+import re
+
+def remove_special_characters(batch):
+    batch["text"] = re.sub(chars_to_ignore_regex, '', batch["text"]).lower() + " "
+    return batch
 
 # COMMAND ----------
 
-
+dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
