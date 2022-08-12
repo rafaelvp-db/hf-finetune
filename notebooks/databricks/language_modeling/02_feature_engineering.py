@@ -92,16 +92,17 @@ from pyspark.sql import functions as F
 
 df_context = df_filtered.withColumnRenamed("utterance", "label")
 window  = Window.partitionBy("conversation_id").orderBy(F.col("id").desc())
-context_length = 20
+context_length = 3
 
 for i in range(1, context_length + 1):
-  df_context = df_context.withColumn(f"context/{i}", F.lead(F.col("label"), i).over(window))
+  df_context = df_context.withColumn(f"context/{i}", F.lead(F.lower(F.col("label")), i).over(window))
   
 display(df_context.where("agent = 0").orderBy(F.col("conversation_id"), F.col("id").desc()))
 
 # COMMAND ----------
 
 df_context = df_context.where("agent = 0").orderBy(F.col("conversation_id"), F.col("id").desc())
+spark.sql("drop table if exists persuasiondb.dialog_contextualized")
 df_context.write.saveAsTable("persuasiondb.dialog_contextualized")
 
 # COMMAND ----------
@@ -109,3 +110,7 @@ df_context.write.saveAsTable("persuasiondb.dialog_contextualized")
 # MAGIC %sql
 # MAGIC 
 # MAGIC select count(1) from persuasiondb.dialog_contextualized
+
+# COMMAND ----------
+
+

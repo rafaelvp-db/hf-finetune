@@ -4,14 +4,25 @@
 # COMMAND ----------
 
 from transformers.pytorch_utils import *
-from transformers import AutoTokenizer
 import mlflow
+from mlflow.tracking import MlflowClient
 import torch
 
-model = mlflow.pytorch.load_model("runs:/a26ba30c318c424496f37876ef8b9450/model")
-model.cuda(0)
+client = MlflowClient()
+
+client.download_artifacts(
+  run_id = "8c9768fb5d534f90a4d0f6391f8df0e8",
+  path = "checkpoint-7000/artifacts/checkpoint-7000",
+  dst_path = "/dbfs/tmp/persuasion4good"
+)
+
+# COMMAND ----------
+
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelForCausalLM.from_pretrained("/dbfs/tmp/persuasion4good/checkpoint-7000/artifacts/checkpoint-7000")
+model.cuda(0) # Send model to GPU
 
 # COMMAND ----------
 
@@ -21,9 +32,9 @@ import numpy as np
 def ask_question(
   question,
   chat_history_ids = [],
-  max_length = 50,
-  temperature = 80.0,
-  repetition_penalty = 70.0
+  max_length = 30,
+  temperature = 10.0,
+  repetition_penalty = 10.0
 ):
   
   new_user_input_ids = tokenizer.encode(
@@ -41,14 +52,14 @@ def ask_question(
   chat_history_ids = model.generate(
     bot_input_ids,
     eos_token_id = tokenizer.eos_token_id,
-    max_length=max_length,
+    max_length = max_length,
     pad_token_id = tokenizer.eos_token_id,  
-    no_repeat_ngram_size=3,
-    do_sample=True, 
-    top_k=100, 
-    top_p=0.7,
+    no_repeat_ngram_size = 10,
+    do_sample  = False, 
+    top_k = 100, 
+    top_p = 0.9,
     repetition_penalty = repetition_penalty,
-    temperature=temperature
+    temperature = temperature
   ).cuda(0)
 
   answer = tokenizer.decode(
@@ -76,9 +87,13 @@ def predict(model_input):
 # COMMAND ----------
 
 model_input = {
-  "question": "hi.",
+  "question": "hi",
   "chat_history_ids": []
 }
 
 answers = predict(model_input)
 answers
+
+# COMMAND ----------
+
+

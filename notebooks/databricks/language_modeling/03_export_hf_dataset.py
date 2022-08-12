@@ -53,8 +53,9 @@ def collate(row):
   return collated
     
 df_pandas["context"] = df_pandas.drop("label", axis=1).apply(lambda x: collate(x), axis=1)
+df_pandas["label"] = df_pandas["label"].str.lower()
 df_pandas = df_pandas.loc[:, ["label", "context"]]
-df_pandas.values
+df_pandas.context.values
 
 # COMMAND ----------
 
@@ -99,14 +100,6 @@ dataset = DatasetDict({
 })
 
 dataset
-
-# COMMAND ----------
-
-import re
-
-def remove_special_characters(batch):
-    batch["text"] = re.sub(chars_to_ignore_regex, '', batch["text"]).lower() + " "
-    return batch
 
 # COMMAND ----------
 
