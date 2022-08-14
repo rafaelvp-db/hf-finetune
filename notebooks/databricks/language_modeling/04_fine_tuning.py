@@ -1,5 +1,5 @@
 # Databricks notebook source
-!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade wheel && pip install pyspark==3.3.0 evaluate==0.1.2
+!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade evaluate wheel && pip install pyspark==3.3.0
 !pip install --upgrade datasets
 
 # COMMAND ----------
@@ -88,7 +88,7 @@ for i in range(0, 1000):
   
   
 mean_embed_size = np.mean(embedded_lengths)
-percentile_95th = np.quantile(embedded_lengths, 0.975)
+percentile_95th = np.quantile(embedded_lengths, 0.95)
 std_embed_size = np.std(embedded_lengths)
 
 print("Average embedding length: ", mean_embed_size)
@@ -114,31 +114,39 @@ print("Sample (encoded) labels: ", dataset["train"]["labels"][0][:10])
 # COMMAND ----------
 
 # DBTITLE 1,Sanity Checks
-print("Decoded embedding - context: ", tokenizer.decode(dataset["train"]["input_ids"][0]), "\n")
-print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"]["labels"][0]))
-
-# COMMAND ----------
-
-# DBTITLE 1,Computing Our Metrics
-import evaluate
-
-def compute_metrics(eval_pred):
-    logits, _ = eval_pred
-    predictions = np.argmax(logits, axis=-1)
-    perplexity = evaluate.load("perplexity", module_type="metric")
-    perplexity_metric = perplexity.compute(
-      model_id='gpt2',
-      input_texts = tokenizer.decode(predictions["input_ids"]),
-    )
-    metrics = {"perplexity": perplexity_metric["mean_perplexity"]}
-    mlflow.log_metrics(metris)
-    return metrics
+print("Decoded embedding - context: ", tokenizer.decode(dataset["train"].shuffle()["input_ids"][0]), "\n")
+print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"].shuffle()["labels"][0]))
 
 # COMMAND ----------
 
 # DBTITLE 1,Downloading our Backbone Model
+from transformers import AutoModelForCausalLM
+
 model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
-model
+
+# COMMAND ----------
+
+# DBTITLE 1,Computing our Metrics
+from evaluate import load
+
+def compute_metrics(eval_pred):
+    _, labels = eval_pred
+    metric = load("perplexity", module_type = "metric")
+    perplexity = metric.compute(input_texts = labels, model_id = "gpt2")
+    result = {"perplexity": perplexity["mean_perplexity"]}
+    mlflow.log_metrics(result)
+    return result
+  
+# Testing
+
+text = "hi."
+tokenized = tokenizer(text, return_attention_mask = False, return_tensors = "pt")
+chat_history_ids = model.generate(inputs = tokenized["input_ids"], max_length=1000, pad_token_id=tokenizer.eos_token_id)
+answer = tokenizer.decode(chat_history_ids[:, tokenized["input_ids"][0].shape[-1]:][0], skip_special_tokens=True)
+print("DialoGPT: {}".format(answer))
+
+eval_pred = (_, "would you like to make a donation?")
+compute_metrics(eval_pred)
 
 # COMMAND ----------
 
@@ -167,12 +175,13 @@ args = TrainingArguments(
   per_device_train_batch_size = 4,
   per_device_eval_batch_size = 4,
   eval_accumulation_steps = 1,
-  learning_rate = 1e-5,
-  weight_decay = 0.5,
+  learning_rate = 5e-5,
+  weight_decay = 0.0,
   adam_epsilon = 1e-8,
+  warmup_steps = 0.0,
   max_grad_norm = 1.0,
   num_train_epochs = 10000.0,
-  logging_steps = 100,
+  logging_steps = 1000,
   no_cuda = False,
   overwrite_output_dir = True,
   seed = 42,
