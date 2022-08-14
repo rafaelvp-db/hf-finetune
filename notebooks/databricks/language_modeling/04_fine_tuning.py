@@ -24,6 +24,8 @@ TARGET_DIR = "/dbfs/tmp/persuasion4good"
 !cp -r {TARGET_DIR}/dataset /tmp/dataset
 
 dataset = datasets.load_from_disk("/tmp/dataset")
+train_dataset = dataset["train"]
+test_dataset = dataset["test"]
 
 # COMMAND ----------
 
@@ -40,12 +42,14 @@ print(f"Model max length: {tokenizer.model_max_length}")
 print(f"Model max length single sentence: {tokenizer.max_len_single_sentence}")
 print(f"Model max_model_input_sizes: {tokenizer.max_model_input_sizes}")
 
-def tokenize(batch, tokenizer, max_length = 1024):
+def tokenize(batch, tokenizer, feature, eos = True, max_length = 1024):
   tokenizer.pad_token = tokenizer.eos_token
-  batch["context"] = batch["context"].replace("<EOS>", tokenizer.eos_token)
+  
+  if eos:
+    batch[feature] = batch[feature].replace("<EOS>", tokenizer.eos_token)
   
   input_ids = tokenizer(
-    batch["context"],
+    batch[feature],
     return_tensors = "pt",
     return_attention_mask = False,
     padding = "max_length",
@@ -53,18 +57,12 @@ def tokenize(batch, tokenizer, max_length = 1024):
     max_length = max_length
   )["input_ids"][0]
   
-  labels = tokenizer(
-      batch["label"],
-      return_tensors = "pt",
-      return_attention_mask = False,
-      padding = "max_length",
-      max_length = max_length,
-      truncation = True
-    )["input_ids"][0]
-  
+  result_key = "labels"
+  if feature != "label":
+    result_key = "input_ids"
+    
   result = {
-    "input_ids": input_ids,
-    "labels": labels
+    f"{result_key}": input_ids
   }
   
   return result
@@ -84,25 +82,28 @@ import torch
 
 embedded_lengths = []
 
-for i in range(0, 100):
+for i in range(0, 1000):
   embedded = tokenizer(dataset["train"].shuffle()[0]["context"], return_tensors = "pt", return_attention_mask = False)
   embedded_lengths.append(len(torch.flatten(embedded["input_ids"])))
   
   
 mean_embed_size = np.mean(embedded_lengths)
+percentile_95th = np.quantile(embedded_lengths, 0.975)
 std_embed_size = np.std(embedded_lengths)
 
 print("Average embedding length: ", mean_embed_size)
 print("Median embedding length: ", np.median(embedded_lengths))
+print("95th percentile - embedding length: ", percentile_95th)
 print("Max embedding length: ", np.max(embedded_lengths))
 print("Min embedding length: ", np.min(embedded_lengths))
 print("STD for embedding length: ", std_embed_size)
 
 # COMMAND ----------
 
-max_length = int(mean_embed_size + (2 * std_embed_size))
-print("Tokenizing with padding to max length: ", max_length)
-dataset = dataset.map(lambda x: tokenize(x, tokenizer, max_length = max_length), remove_columns = ["label", "context"])
+max_input_length = int(percentile_95th + std_embed_size)
+print("Tokenizing with padding to max length: ", max_input_length)
+dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "context", max_length = max_input_length), remove_columns = ["context"])
+dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "label", eos = False, max_length = max_input_length), remove_columns = ["label"])
 
 # COMMAND ----------
 
@@ -113,17 +114,22 @@ print("Sample (encoded) labels: ", dataset["train"]["labels"][0][:10])
 # COMMAND ----------
 
 # DBTITLE 1,Sanity Checks
-tokenizer.decode(dataset["train"]["input_ids"][0])
-tokenizer.decode(dataset["train"]["labels"][0])
+print("Decoded embedding - context: ", tokenizer.decode(dataset["train"]["input_ids"][0]), "\n")
+print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"]["labels"][0]))
 
 # COMMAND ----------
 
 # DBTITLE 1,Computing Our Metrics
+import evaluate
+
 def compute_metrics(eval_pred):
-    predictions, labels = eval_pred
-    perplexity = load("perplexity", module_type="metric")
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)
+    perplexity = evaluate.load("perplexity", module_type="metric")
     perplexity_metric = perplexity.compute(predictions = predictions, model_id='gpt2')
-    return {"perplexity": perplexity_metric}
+    metrics = {"perplexity": perplexity_metric["mean_perplexity"]}
+    mlflow.log_metrics(metris)
+    return metrics
 
 # COMMAND ----------
 
@@ -133,7 +139,7 @@ model
 
 # COMMAND ----------
 
-# By default, Hugging Face has an MLflow callback. We need to setup some parameters.
+# By default, Hugging Face has an MLflow callback which is alredy switched on. We just need to setup some parameters.
 
 import os
 
@@ -148,39 +154,40 @@ from transformers import EarlyStoppingCallback, IntervalStrategy
 from  transformers.trainer_utils import SchedulerType
 
 tokenizer.pad_token = tokenizer.eos_token
-#collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = 1024)
+collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = max_input_length)
 
 args = TrainingArguments(
   output_dir = f"{TARGET_DIR}/trainer/",
-  per_device_train_batch_size = 2,
-  per_device_eval_batch_size = 1,
+  evaluation_strategy = IntervalStrategy.STEPS, # "steps"
+  eval_steps = 50, # Evaluation and Save happens every 50 steps
+  save_total_limit = 5, # Only last 5 models are saved. Older ones are deleted.
+  per_device_train_batch_size = 4,
+  per_device_eval_batch_size = 4,
   eval_accumulation_steps = 1,
-  learning_rate = 2e-5,
-  weight_decay = 0.7,
+  learning_rate = 1e-5,
+  weight_decay = 0.5,
   adam_epsilon = 1e-8,
   max_grad_norm = 1.0,
-  num_train_epochs = 100.0,
-  lr_scheduler_type = SchedulerType.CONSTANT_WITH_WARMUP,
-  warmup_steps = 5,
+  num_train_epochs = 10000.0,
   logging_steps = 100,
-  save_steps = 1000,
   no_cuda = False,
   overwrite_output_dir = True,
   seed = 42,
   local_rank = -1,
-  fp16 = True,
-  fp16_opt_level = 'O1',
-  metric_for_best_model = 'perplexity'
+  fp16 = False,
+  metric_for_best_model = 'perplexity',
+  load_best_model_at_end = True
 )
 
 trainer = Trainer(
-  #data_collator = collator,
+  data_collator = collator,
   compute_metrics = compute_metrics,
   model = model.cuda(),
   args = args,
   train_dataset = dataset["train"],
   eval_dataset = dataset["test"],
-  tokenizer = tokenizer
+  tokenizer = tokenizer,
+  callbacks = [EarlyStoppingCallback(early_stopping_patience = 5, early_stopping_threshold = 0.1)]
 )
 
 # COMMAND ----------
@@ -189,8 +196,10 @@ import mlflow
 import torch
 
 torch.cuda.empty_cache()
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
-trainer.train()
+
+with mlflow.start_run(nested = True) as run:
+  #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+  trainer.train()
 
 # COMMAND ----------
 
