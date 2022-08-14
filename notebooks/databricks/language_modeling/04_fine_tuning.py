@@ -123,10 +123,13 @@ print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"]["labels"
 import evaluate
 
 def compute_metrics(eval_pred):
-    logits, labels = eval_pred
+    logits, _ = eval_pred
     predictions = np.argmax(logits, axis=-1)
     perplexity = evaluate.load("perplexity", module_type="metric")
-    perplexity_metric = perplexity.compute(predictions = predictions, model_id='gpt2')
+    perplexity_metric = perplexity.compute(
+      model_id='gpt2',
+      input_texts = tokenizer.decode(predictions["input_ids"]),
+    )
     metrics = {"perplexity": perplexity_metric["mean_perplexity"]}
     mlflow.log_metrics(metris)
     return metrics
@@ -175,13 +178,13 @@ args = TrainingArguments(
   seed = 42,
   local_rank = -1,
   fp16 = False,
-  metric_for_best_model = 'perplexity',
+  metric_for_best_model = 'loss',
   load_best_model_at_end = True
 )
 
 trainer = Trainer(
   data_collator = collator,
-  compute_metrics = compute_metrics,
+  #compute_metrics = compute_metrics,
   model = model.cuda(),
   args = args,
   train_dataset = dataset["train"],
@@ -200,12 +203,13 @@ torch.cuda.empty_cache()
 with mlflow.start_run(nested = True) as run:
   #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
   trainer.train()
+  model = trainer.model
+  model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
 
 # COMMAND ----------
 
 # TODO: keep everything inside the same run
-model = trainer.model
-model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
+
 
 # COMMAND ----------
 

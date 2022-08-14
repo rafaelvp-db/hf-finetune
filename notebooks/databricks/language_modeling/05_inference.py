@@ -11,18 +11,25 @@ import torch
 client = MlflowClient()
 
 client.download_artifacts(
-  run_id = "8c9768fb5d534f90a4d0f6391f8df0e8",
-  path = "checkpoint-7000/artifacts/checkpoint-7000",
-  dst_path = "/dbfs/tmp/persuasion4good"
+  run_id = "ddfc9dc478174f4e91087b22a1a8e020",
+  path = "model",
+  dst_path = "/tmp/model/"
 )
 
 # COMMAND ----------
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+!ls /tmp/model/data
+
+# COMMAND ----------
+
+with open("/tmp/model/model/data/model.pth", "rb") as file:
+  model = torch.load(file, map_location=torch.device("cpu"))
+
+# COMMAND ----------
+
+from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-model = AutoModelForCausalLM.from_pretrained("/dbfs/tmp/persuasion4good/checkpoint-7000/artifacts/checkpoint-7000")
-model.cuda(0) # Send model to GPU
 
 # COMMAND ----------
 
@@ -32,9 +39,9 @@ import numpy as np
 def ask_question(
   question,
   chat_history_ids = [],
-  max_length = 30,
-  temperature = 10.0,
-  repetition_penalty = 10.0
+  max_length = 50,
+  temperature = 100.0,
+  repetition_penalty = 50.0
 ):
   
   new_user_input_ids = tokenizer.encode(
@@ -47,20 +54,20 @@ def ask_question(
   if (len(chat_history_ids) > 0):
     bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1).cuda(0)
   else:
-    bot_input_ids = new_user_input_ids.cuda(0)
+    bot_input_ids = new_user_input_ids
 
   chat_history_ids = model.generate(
     bot_input_ids,
     eos_token_id = tokenizer.eos_token_id,
     max_length = max_length,
     pad_token_id = tokenizer.eos_token_id,  
-    no_repeat_ngram_size = 10,
+    no_repeat_ngram_size = 3,
     do_sample  = False, 
-    top_k = 100, 
-    top_p = 0.9,
+    top_k = 30, 
+    top_p = 0.75,
     repetition_penalty = repetition_penalty,
     temperature = temperature
-  ).cuda(0)
+  )
 
   answer = tokenizer.decode(
     chat_history_ids[:, bot_input_ids.shape[-1]:][0],
