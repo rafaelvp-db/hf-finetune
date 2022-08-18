@@ -36,7 +36,7 @@ test_dataset = dataset["test"]
 
 #We will create a custom tokenization function leveraging microsoft/DialoGPT-Medium tokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium", return_special_tokens_mask = True)
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small", return_special_tokens_mask = True)
 print(f"Model max length: {tokenizer.model_max_length}")
 print(f"Model max length single sentence: {tokenizer.max_len_single_sentence}")
 print(f"Model max_model_input_sizes: {tokenizer.max_model_input_sizes}")
@@ -69,6 +69,11 @@ def tokenize(batch, tokenizer, feature, eos = True, max_length = 1024, pad_to_mu
   }
   
   return result
+
+# COMMAND ----------
+
+# DBTITLE 1,Making sure we don't have too small utterances
+dataset = dataset.filter(lambda example: len(example['label']) > 2 and len(example['context']) > 2)
 
 # COMMAND ----------
 
@@ -124,9 +129,9 @@ print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"].shuffle(
 
 # DBTITLE 1,Downloading our Backbone Model
 from transformers import AutoModelWithLMHead, AutoConfig #AutoModelForCausalLM
-config = AutoConfig.from_pretrained("microsoft/DialoGPT-medium")
+config = AutoConfig.from_pretrained("microsoft/DialoGPT-small")
 model = AutoModelWithLMHead.from_pretrained(
-  "microsoft/DialoGPT-medium",
+  "microsoft/DialoGPT-small",
   config = config
 )
 
@@ -145,8 +150,8 @@ os.environ["MLFLOW_NESTED_RUN"] = "1"
 
 def compute_metrics(eval_loss: float):
   
-  metrics = {"eval_perplexity": torch.exp(eval_loss).float()}
-  return metrics
+  loss = torch.exp(eval_loss).float()
+  return loss
 
 # COMMAND ----------
 
@@ -179,7 +184,7 @@ args = TrainingArguments(
   seed = 42,
   local_rank = -1,
   fp16 = False,
-  metric_for_best_model = 'perplexity',
+  metric_for_best_model = 'eval_loss',
   load_best_model_at_end = True,
   disable_tqdm = False,
   prediction_loss_only=True
