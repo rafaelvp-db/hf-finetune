@@ -14,13 +14,13 @@ client = MlflowClient()
 
 client.download_artifacts(
   run_id = "4b2c833519dd481086f4e7b6d291d0e3",
-  path = "checkpoint-4000",
+  path = "checkpoint-8000",
   dst_path = "/tmp/model/"
 )
 
 # COMMAND ----------
 
-TARGET_DIR = "/tmp/model/checkpoint-4000/artifacts/checkpoint-4000"
+TARGET_DIR = "/tmp/model/checkpoint-8000/artifacts/checkpoint-8000"
 !ls {TARGET_DIR}
 
 # COMMAND ----------
@@ -38,39 +38,50 @@ model.to("cpu")
 import torch
 import numpy as np
 
-def ask_question(
+def generate(
   question,
   chat_history_ids = [],
-  max_length = 20,
-  temperature = 3.0,
-  repetition_penalty = 20.0
+  max_new_tokens = 20,
+  temperature = 1.0,
+  repetition_penalty = 10.0,
+  do_sample = True,
+  top_k = 5,
+  top_p = 0.9,
+  no_repeat_ngram_size = 3,
+  length_penalty = 20.0
 ):
   
   new_user_input_ids = tokenizer.encode(
     str(question) + str(tokenizer.eos_token),
-    return_tensors='pt'
+    return_tensors = 'pt'
   )
 
-  chat_history_tensor = torch.from_numpy(np.array(chat_history_ids))
-  chat_history_ids = torch.reshape(input = chat_history_tensor, shape = (-1,))
-
+  chat_history_tensor = torch.tensor(chat_history_ids)
   if (len(chat_history_ids) > 0):
-    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=0)
+    bot_input_ids = torch.cat([chat_history_tensor, torch.flatten(new_user_input_ids)], dim = -1)
+    bot_input_ids = torch.reshape(bot_input_ids, shape = (1, -1))
   else:
     bot_input_ids = new_user_input_ids
-
+    
   chat_history_ids = model.generate(
     bot_input_ids,
     eos_token_id = tokenizer.eos_token_id,
-    max_length = max_length,
+    max_new_tokens = max_new_tokens,
     pad_token_id = tokenizer.eos_token_id,  
-    no_repeat_ngram_size = 3,
-    do_sample  = True, 
-    top_k = 10, 
-    top_p = 0.9,
+    no_repeat_ngram_size = no_repeat_ngram_size,
+    do_sample  = do_sample, 
+    top_k = top_k, 
+    top_p = top_p,
     repetition_penalty = repetition_penalty,
-    temperature = temperature
+    temperature = temperature,
+    length_penalty = length_penalty,
+    forced_eos_token_id = tokenizer.eos_token_id
   )
+  
+  """chat_history_ids = model.generate(
+    bot_input_ids,
+    eos_token_id = tokenizer.eos_token_id
+  )"""
 
   answer = tokenizer.decode(
     chat_history_ids[:, bot_input_ids.shape[-1]:][0],
@@ -82,7 +93,7 @@ def ask_question(
   
 def predict(model_input):
 
-  answer, chat_history_ids = ask_question(
+  answer, chat_history_ids = generate(
     question = model_input["question"],
     chat_history_ids = model_input["chat_history_ids"]
   )
@@ -96,10 +107,48 @@ def predict(model_input):
 
 # COMMAND ----------
 
+question = "hello"
+
 model_input = {
-  "question": "hi",
+  "question": question,
   "chat_history_ids": []
 }
 
-answers = predict(model_input)
-answers
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
+
+# COMMAND ----------
+
+question = "no, I haven't heard of them"
+
+model_input = {
+  "question": question,
+  "chat_history_ids": chat_history_ids
+}
+
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
+
+# COMMAND ----------
+
+question = "sure, please"
+
+model_input = {
+  "question": question,
+  "chat_history_ids": chat_history_ids
+}
+
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
