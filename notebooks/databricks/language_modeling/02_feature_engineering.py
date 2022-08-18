@@ -77,7 +77,29 @@ display(df_filtered)
 
 # COMMAND ----------
 
-df_filtered.write.saveAsTable("persuasiondb.filtered_conversations", mode="overwrite")
+from pyspark.sql import functions as F
+from pyspark.sql import window as W
+
+df_exploded = df_filtered.drop("turn").withColumn(
+  "shortened_utterance",
+  F.explode(
+    F.split(F.col("utterance"), "[\.|\?|\!]")
+  )
+).filter("length(shortened_utterance) > 0")
+
+df_exploded = df_exploded.withColumn(
+  "turn",
+  F.row_number().over(
+    W.Window.orderBy('conversation_id', 'id')
+  )
+)\
+.drop("utterance", "id")
+
+display(df_exploded)
+
+# COMMAND ----------
+
+df_exploded.write.saveAsTable("persuasiondb.exploded_conversations", mode="overwrite")
 
 # COMMAND ----------
 
@@ -87,17 +109,14 @@ df_filtered.write.saveAsTable("persuasiondb.filtered_conversations", mode="overw
 
 # COMMAND ----------
 
-from pyspark.sql.window import Window
-from pyspark.sql import functions as F
+CONTEXT_LENGTH = 5
+df_context = df_exploded.withColumnRenamed("shortened_utterance", "label")
+window  = W.Window.partitionBy("conversation_id").orderBy(F.col("turn").desc())
 
-df_context = df_filtered.withColumnRenamed("utterance", "label")
-window  = Window.partitionBy("conversation_id").orderBy(F.col("id").desc())
-context_length = 3
-
-for i in range(1, context_length + 1):
+for i in range(1, CONTEXT_LENGTH + 1):
   df_context = df_context.withColumn(f"context/{i}", F.lead(F.lower(F.col("label")), i).over(window))
   
-display(df_context.where("agent = 0").orderBy(F.col("conversation_id"), F.col("id").desc()))
+display(df_context.where("agent = 0").orderBy(F.col("conversation_id"), F.col("turn").desc()))
 
 # COMMAND ----------
 
@@ -110,6 +129,19 @@ df_context.write.saveAsTable("persuasiondb.dialog_contextualized")
 # MAGIC %sql
 # MAGIC 
 # MAGIC select count(1) from persuasiondb.dialog_contextualized
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * from persuasiondb.dialog_contextualized
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * from persuasiondb.dialog_contextualized
+# MAGIC where length(label) = 0
 
 # COMMAND ----------
 

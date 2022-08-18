@@ -28,7 +28,14 @@ from typing import List, Tuple, Dict
 # COMMAND ----------
 
 # DBTITLE 1,Taking out columns that won't be used
-df_final = spark.sql("select * from persuasiondb.dialog_contextualized") \
+from pyspark.sql import functions as F
+
+context_size = 5
+query_filter = " AND ".join(["length(spark_catalog.persuasiondb.dialog_contextualized.`context/{}`) > 0".format(i) for i in range(1, context_size + 1)])
+query = f"select * from persuasiondb.dialog_contextualized WHERE {query_filter}"
+print(query_filter)
+
+df_final = spark.sql(query) \
   .drop(
     "conversation_id",
     "id",
@@ -60,6 +67,7 @@ df_pandas.context.values
 # COMMAND ----------
 
 from datasets import Dataset, DatasetDict
+from transformers import TextDataset
 from datasets.splits import NamedSplit
 from sklearn.model_selection import train_test_split
 import pyarrow as pa
@@ -104,3 +112,11 @@ dataset
 # COMMAND ----------
 
 dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
+
+# COMMAND ----------
+
+dataset
+
+# COMMAND ----------
+
+

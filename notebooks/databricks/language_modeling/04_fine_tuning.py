@@ -21,9 +21,8 @@ from transformers import (
 
 TARGET_DIR = "/dbfs/tmp/persuasion4good"
 !rm -rf {TARGET_DIR}/trainer
-!cp -r {TARGET_DIR}/dataset /tmp/dataset
 
-dataset = datasets.load_from_disk("/tmp/dataset")
+dataset = datasets.load_from_disk(f"{TARGET_DIR}/dataset", keep_in_memory = True)
 train_dataset = dataset["train"]
 test_dataset = dataset["test"]
 
@@ -37,24 +36,28 @@ test_dataset = dataset["test"]
 
 #We will create a custom tokenization function leveraging microsoft/DialoGPT-Medium tokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium", return_special_tokens_mask = True)
 print(f"Model max length: {tokenizer.model_max_length}")
 print(f"Model max length single sentence: {tokenizer.max_len_single_sentence}")
 print(f"Model max_model_input_sizes: {tokenizer.max_model_input_sizes}")
 
-def tokenize(batch, tokenizer, feature, eos = True, max_length = 1024):
+def tokenize(batch, tokenizer, feature, eos = True, max_length = 1024, pad_to_multiple_of = 8):
   tokenizer.pad_token = tokenizer.eos_token
   
   if eos:
     batch[feature] = batch[feature].replace("<EOS>", tokenizer.eos_token)
+    
+  remainder = pad_to_multiple_of - (max_length % pad_to_multiple_of)
+  max_length_multiple = max_length + remainder
   
   input_ids = tokenizer(
     batch[feature],
     return_tensors = "pt",
     return_attention_mask = False,
     padding = "max_length",
-    truncation = True,
-    max_length = max_length
+    truncation = "longest_first",
+    max_length = max_length_multiple,
+    pad_to_multiple_of = pad_to_multiple_of
   )["input_ids"][0]
   
   result_key = "labels"
@@ -82,13 +85,13 @@ import torch
 
 embedded_lengths = []
 
-for i in range(0, 1000):
+for i in range(0, 100):
   embedded = tokenizer(dataset["train"].shuffle()[0]["context"], return_tensors = "pt", return_attention_mask = False)
   embedded_lengths.append(len(torch.flatten(embedded["input_ids"])))
   
   
 mean_embed_size = np.mean(embedded_lengths)
-percentile_95th = np.quantile(embedded_lengths, 0.95)
+percentile_95th = np.quantile(embedded_lengths, 0.85)
 std_embed_size = np.std(embedded_lengths)
 
 print("Average embedding length: ", mean_embed_size)
@@ -100,16 +103,16 @@ print("STD for embedding length: ", std_embed_size)
 
 # COMMAND ----------
 
-max_input_length = int(percentile_95th + std_embed_size)
-print("Tokenizing with padding to max length: ", max_input_length)
+max_input_length = int(percentile_95th)
+print("Tokenizing with padding to ", max_input_length)
 dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "context", max_length = max_input_length), remove_columns = ["context"])
 dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "label", eos = False, max_length = max_input_length), remove_columns = ["label"])
 
 # COMMAND ----------
 
 # DBTITLE 1,Checking our outputs
-print("Sample (encoded) input_ids: ", dataset["train"]["input_ids"][0][:10])
-print("Sample (encoded) labels: ", dataset["train"]["labels"][0][:10])
+print("Sample (encoded) input_ids: ", dataset["train"]["input_ids"][0][:10], "length: ", len(dataset["train"]["input_ids"][0]))
+print("Sample (encoded) labels: ", dataset["train"]["labels"][0][:10], "length: ", len(dataset["train"]["labels"][0]))
 
 # COMMAND ----------
 
@@ -120,33 +123,12 @@ print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"].shuffle(
 # COMMAND ----------
 
 # DBTITLE 1,Downloading our Backbone Model
-from transformers import AutoModelForCausalLM
-
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
-
-# COMMAND ----------
-
-# DBTITLE 1,Computing our Metrics
-from evaluate import load
-
-def compute_metrics(eval_pred):
-    _, labels = eval_pred
-    metric = load("perplexity", module_type = "metric")
-    perplexity = metric.compute(input_texts = labels, model_id = "gpt2")
-    result = {"perplexity": perplexity["mean_perplexity"]}
-    mlflow.log_metrics(result)
-    return result
-  
-# Testing
-
-text = "hi."
-tokenized = tokenizer(text, return_attention_mask = False, return_tensors = "pt")
-chat_history_ids = model.generate(inputs = tokenized["input_ids"], max_length=1000, pad_token_id=tokenizer.eos_token_id)
-answer = tokenizer.decode(chat_history_ids[:, tokenized["input_ids"][0].shape[-1]:][0], skip_special_tokens=True)
-print("DialoGPT: {}".format(answer))
-
-eval_pred = (_, "would you like to make a donation?")
-compute_metrics(eval_pred)
+from transformers import AutoModelWithLMHead, AutoConfig #AutoModelForCausalLM
+config = AutoConfig.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelWithLMHead.from_pretrained(
+  "microsoft/DialoGPT-medium",
+  config = config
+)
 
 # COMMAND ----------
 
@@ -161,11 +143,21 @@ os.environ["MLFLOW_NESTED_RUN"] = "1"
 
 # COMMAND ----------
 
-from transformers import EarlyStoppingCallback, IntervalStrategy
-from  transformers.trainer_utils import SchedulerType
+def compute_metrics(eval_loss: float):
+  
+  metrics = {"eval_perplexity": torch.exp(eval_loss).float()}
+  return metrics
+
+# COMMAND ----------
+
+from transformers import EarlyStoppingCallback, IntervalStrategy, DataCollatorForLanguageModeling
 
 tokenizer.pad_token = tokenizer.eos_token
-collator = DataCollatorWithPadding(tokenizer = tokenizer, padding = "max_length", max_length = max_input_length)
+collator = DataCollatorForLanguageModeling(
+  tokenizer = tokenizer,
+  mlm = False,
+  pad_to_multiple_of = 8
+)
 
 args = TrainingArguments(
   output_dir = f"{TARGET_DIR}/trainer/",
@@ -187,19 +179,24 @@ args = TrainingArguments(
   seed = 42,
   local_rank = -1,
   fp16 = False,
-  metric_for_best_model = 'loss',
-  load_best_model_at_end = True
+  metric_for_best_model = 'perplexity',
+  load_best_model_at_end = True,
+  disable_tqdm = False,
+  prediction_loss_only=True
 )
 
 trainer = Trainer(
   data_collator = collator,
-  #compute_metrics = compute_metrics,
+  compute_metrics = compute_metrics,
   model = model.cuda(),
   args = args,
   train_dataset = dataset["train"],
   eval_dataset = dataset["test"],
   tokenizer = tokenizer,
-  callbacks = [EarlyStoppingCallback(early_stopping_patience = 5, early_stopping_threshold = 0.1)]
+  callbacks = [EarlyStoppingCallback(
+    early_stopping_patience = 5,
+    early_stopping_threshold = 0.0005
+  )]
 )
 
 # COMMAND ----------
@@ -212,18 +209,12 @@ torch.cuda.empty_cache()
 with mlflow.start_run(nested = True) as run:
   #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
   trainer.train()
+  metrics = trainer.evaluate()
+  print(metrics)
+  mlflow.log_metrics(metrics)
   model = trainer.model
   model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
 
 # COMMAND ----------
 
-# TODO: keep everything inside the same run
 
-
-# COMMAND ----------
-
-trainer.save_model("/tmp/persuasion4good/model")
-tokenizer.save_pretrained("/tmp/persuasion4good/tokenizer")
-
-trainer.save_model("/dbfs/tmp/persuasion4good/model")
-tokenizer.save_pretrained("/dbfs/tmp/persuasion4good/tokenizer")

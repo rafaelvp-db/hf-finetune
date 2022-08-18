@@ -10,20 +10,27 @@ import torch
 
 client = MlflowClient()
 
+!mkdir /tmp/model
+
 client.download_artifacts(
-  run_id = "ddfc9dc478174f4e91087b22a1a8e020",
-  path = "model",
+  run_id = "5fe4b4c168eb46f7ad9d65018d00bad9",
+  path = "checkpoint-1000",
   dst_path = "/tmp/model/"
 )
 
 # COMMAND ----------
 
-!ls /tmp/model/data
+!ls /tmp/model/checkpoint-1000/artifacts/checkpoint-1000
 
 # COMMAND ----------
 
-with open("/tmp/model/model/data/model.pth", "rb") as file:
-  model = torch.load(file, map_location=torch.device("cpu"))
+from transformers import AutoModelForCausalLM
+
+model = AutoModelForCausalLM.from_pretrained("/tmp/model/checkpoint-1000/artifacts/checkpoint-1000")
+
+# COMMAND ----------
+
+model.to("cpu")
 
 # COMMAND ----------
 
@@ -39,7 +46,7 @@ import numpy as np
 def ask_question(
   question,
   chat_history_ids = [],
-  max_length = 50,
+  max_length = 30,
   temperature = 100.0,
   repetition_penalty = 50.0
 ):
