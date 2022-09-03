@@ -56,10 +56,10 @@ class GetDataTask(Task):
 
 
     def launch(self):
-        self.logger.info("Launching sample ETL task")
-        df = self._get_data()
-        df = self._parse_df()
-        self.logger.info("Sample ETL task finished!")
+        self.logger.info("Launching data task")
+        self._get_data()
+        self._parse_df()
+        self.logger.info("Data task finished.")
 
 
 # if you're using python_wheel_task, you'll need the entrypoint function to be used in setup.py

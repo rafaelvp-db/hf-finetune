@@ -2,7 +2,8 @@ import pytest
 from fixtures import (
     get_data_task,
     config,
-    target_columns
+    target_columns,
+    csv_rows
 )
 from persuasion4good.tasks.data import GetDataTask
 from pyspark.sql import SparkSession
@@ -21,15 +22,12 @@ def test_get_data(get_data_task: GetDataTask, spark: SparkSession, config: Dict)
 
 def test_parse_data(
     spark: SparkSession,
+    csv_rows: List,
     config: Dict,
     get_data_task: GetDataTask,
     target_columns: List
 ):
-    csv_rows = [
-        ",Unit,Turn,B4,B2",
-        "0,Good morning. How are you doing today?,0,0,20180904-045349_715_live",
-        "1,,,,20180904-045349_715_live"
-    ]
+    
     filepath = Path(config["target_dir"])
     filepath.write_text("\n".join(csv_rows))
 
@@ -42,10 +40,9 @@ def test_parse_data(
     )
 
     assert sorted(target_columns) == sorted(df.columns)
-    assert df.count() == 1
-
+    assert df.count() == 4
+    
 
 def test_launch(get_data_task: GetDataTask):
-    
+
     get_data_task.launch()
-    

@@ -15,11 +15,10 @@ from pyspark.sql import SparkSession
 import logging
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def spark() -> SparkSession:
     """
     This fixture provides preconfigured SparkSession with Hive and Delta support.
-    After the test session, temporary warehouse directory is deleted.
     :return: SparkSession
     """
     logging.info("Configuring Spark session for testing environment")
@@ -35,11 +34,7 @@ def spark() -> SparkSession:
     )
     spark: SparkSession = configure_spark_with_delta_pip(_builder).getOrCreate()
     logging.info("Spark session configured")
-    yield spark
-    logging.info("Shutting down Spark session")
-    spark.stop()
-    if Path(warehouse_dir).exists():
-        shutil.rmtree(warehouse_dir)
+    return spark
 
 
 @pytest.fixture(scope="session", autouse=True)
