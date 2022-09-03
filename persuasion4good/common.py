@@ -7,28 +7,14 @@ from pyspark.sql import SparkSession
 import sys
 
 
-def get_dbutils(
-    spark: SparkSession,
-):  # please note that this function is used in mocking by its name
-    try:
-        from pyspark.dbutils import DBUtils  # noqa
-
-        if "dbutils" not in locals():
-            utils = DBUtils(spark)
-            return utils
-        else:
-            return locals().get("dbutils")
-    except ImportError:
-        return None
-
-
 class Task(ABC):
     """
-    This is an abstract class that provides handy interfaces to implement workloads (e.g. jobs or job tasks).
-    Create a child from this class and implement the abstract launch method.
+    This is an abstract class that provides handy interfaces to implement
+    workloads (e.g. jobs or job tasks).
+    Create a child from this class and implement the abstract launch
+    method.
     Class provides access to the following useful objects:
     * self.spark is a SparkSession
-    * self.dbutils provides access to the DBUtils
     * self.logger provides access to the Spark-compatible logger
     * self.conf provides access to the parsed configuration of the job
     """
@@ -36,7 +22,6 @@ class Task(ABC):
     def __init__(self, spark=None, init_conf=None):
         self.spark = self._prepare_spark(spark)
         self.logger = self._prepare_logger()
-        self.dbutils = self.get_dbutils()
         if init_conf:
             self.conf = init_conf
         else:
@@ -49,16 +34,6 @@ class Task(ABC):
             return SparkSession.builder.getOrCreate()
         else:
             return spark
-
-    def get_dbutils(self):
-        utils = get_dbutils(self.spark)
-
-        if not utils:
-            self.logger.warn("No DBUtils defined in the runtime")
-        else:
-            self.logger.info("DBUtils class initialized")
-
-        return utils
 
     def _provide_config(self):
         self.logger.info("Reading configuration from --conf-file job option")
