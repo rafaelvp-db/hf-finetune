@@ -6,5 +6,6 @@ wheel
 transformers
 torch
 datasets
-jupyter
 pytest
+pytest-cov
+wget
