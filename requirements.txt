@@ -1,10 +1,9 @@
+pyspark==3.2.1
+dbx
+setuptools
 wheel
-tqdm
 transformers
 torch
 datasets
-ipython
 jupyter
 pytest
-ipykernel
-scikit-learn

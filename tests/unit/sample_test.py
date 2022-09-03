@@ -1,4 +1,4 @@
-from persuasion4good.tasks.sample_etl_task import SampleETLTask
+from persuasion4good.tasks.data import SampleETLTask
 from persuasion4good.tasks.sample_ml_task import SampleMLTask
 from pyspark.sql import SparkSession
 from pathlib import Path
