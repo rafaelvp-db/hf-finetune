@@ -221,5 +221,3 @@ with mlflow.start_run(nested = True) as run:
   model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
 
 # COMMAND ----------
-
-

@@ -1,0 +1,13 @@
+{
+    "environments": {
+        "default": {
+            "profile": "DEFAULT",
+            "storage_type": "mlflow",
+            "properties": {
+                "workspace_directory": "/Shared/dbx/persuasion4good",
+                "artifact_location": "dbfs:/Shared/dbx/projects/persuasion4good"
+            }
+        }
+    },
+    "inplace_jinja_support": false
+}

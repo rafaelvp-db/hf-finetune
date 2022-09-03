@@ -118,5 +118,3 @@ dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
 dataset
 
 # COMMAND ----------
-
-

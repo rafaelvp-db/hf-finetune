@@ -290,5 +290,3 @@ gr.Interface(fn=predict_gradio,
              allow_flagging="never").launch(share=True)
 
 # COMMAND ----------
-
-

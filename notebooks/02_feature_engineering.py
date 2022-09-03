@@ -144,5 +144,3 @@ df_context.write.saveAsTable("persuasiondb.dialog_contextualized")
 # MAGIC where length(label) = 0
 
 # COMMAND ----------
-
-
