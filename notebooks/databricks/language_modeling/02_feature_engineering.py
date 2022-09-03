@@ -83,7 +83,7 @@ from pyspark.sql import window as W
 df_exploded = df_filtered.drop("turn").withColumn(
   "shortened_utterance",
   F.explode(
-    F.split(F.col("utterance"), "[\.|\?|\!]")
+    F.split(F.col("utterance"), "[\.|\?|\!\,]")
   )
 ).filter("length(shortened_utterance) > 0")
 

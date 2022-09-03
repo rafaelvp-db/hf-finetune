@@ -53,7 +53,7 @@ import numpy as np
 def generate(
   question,
   chat_history_ids = [],
-  max_new_tokens = 20,
+  max_new_tokens = 25,
   temperature = 1.0,
   repetition_penalty = 10.0,
   do_sample = True,
@@ -96,6 +96,8 @@ def generate(
     length_penalty = length_penalty,
     forced_eos_token_id = tokenizer.eos_token_id
   )
+  
+  print(chat_history_ids)
 
   # Using our tokenizer to decode the outputs from our model
   # (e.g. convert model outputs to text)
@@ -146,7 +148,7 @@ print("Answer: ", answer)
 
 # COMMAND ----------
 
-question = "no, I haven't heard of them"
+question = "no I haven't"
 
 model_input = {
   "question": question,
@@ -162,7 +164,7 @@ print("Answer: ", answer)
 
 # COMMAND ----------
 
-question = "sure, please"
+question = "nice, how can I donate?"
 
 model_input = {
   "question": question,
@@ -201,7 +203,7 @@ flagging_dir = "/tmp/flagged"
 def greet(name):
     return "Hello " + name + "!"
 
-demo = gr.Interface(fn = greet, inputs = "text", outputs = "text", flagging_dir = flagging_dir)
+demo = gr.Interface(fn = greet, inputs = "text", outputs = "text", allow_flagging = "never")
 routes = demo.launch(share = True)
 
 # COMMAND ----------
@@ -219,27 +221,73 @@ displayHTML(f"<h3>We can access our Gradio by clicking this link: <a href='{rout
 
 # COMMAND ----------
 
-def predict(text, history = []):
-    # tokenize the new input sentence
-    new_user_input_ids = tokenizer.encode(text + tokenizer.eos_token, return_tensors='pt')
+import gradio as gr
 
-    # append the new user input tokens to the chat history
-    bot_input_ids = torch.cat([torch.LongTensor(history), new_user_input_ids], dim=-1)
+def generate(
+  question,
+  history = [],
+  max_new_tokens = 25,
+  temperature = 1.0,
+  repetition_penalty = 10.0,
+  do_sample = True,
+  top_k = 5,
+  top_p = 0.9,
+  no_repeat_ngram_size = 3,
+  length_penalty = 20.0
+):
+  """
+    This function is a wrapper on top of our fine tuned model.
+    It preprocesses and tokenizes our inputs, and calls the generate function
+    from the DialoGPT model we trained.
+  """
+  
+  new_user_input_ids = tokenizer.encode(
+    str(question) + str(tokenizer.eos_token),
+    return_tensors = 'pt'
+  )
 
-    # generate a response 
-    history = model.generate(bot_input_ids, max_length=30, pad_token_id=tokenizer.eos_token_id).tolist()
+  chat_history_ids = tokenizer(tokenizer.eos_token.join(history))
+  chat_history_tensor = torch.tensor(chat_history_ids)
+  if (len(chat_history_ids) > 0):
+    # Continuing an existing conversation
+    bot_input_ids = torch.cat([chat_history_tensor, torch.flatten(new_user_input_ids)], dim = -1)
+    bot_input_ids = torch.reshape(bot_input_ids, shape = (1, -1))
+  else:
+    # Beginning of conversation
+    bot_input_ids = new_user_input_ids
+    
+  chat_history_ids = model.generate(
+    bot_input_ids,
+    eos_token_id = tokenizer.eos_token_id,
+    max_new_tokens = max_new_tokens,
+    pad_token_id = tokenizer.eos_token_id,  
+    no_repeat_ngram_size = no_repeat_ngram_size,
+    do_sample  = do_sample, 
+    top_k = top_k, 
+    top_p = top_p,
+    repetition_penalty = repetition_penalty,
+    temperature = temperature,
+    length_penalty = length_penalty,
+    forced_eos_token_id = tokenizer.eos_token_id
+  )
 
-    # convert the tokens to text, and then split the responses into lines
-    response = tokenizer.decode(history[0]).split("<|endoftext|>")
-    response = [(response[i], response[i+1]) for i in range(0, len(response)-1, 2)]  # convert to tuples of list
-    return response, history
+  # Using our tokenizer to decode the outputs from our model
+  # (e.g. convert model outputs to text)
+  
+  answer = tokenizer.decode(
+    chat_history_ids[:, bot_input_ids.shape[-1]:][0],
+    skip_special_tokens = True
+  )
 
-routes = gr.Interface(
-  fn = predict,
-  inputs = ["text", "state"],
-  outputs = ["chatbot", "state"],
-  allow_flagging = "never"
-).launch(share = True)
+  return answer, chat_history_ids
+
+
+chatbot = gr.Chatbot().style(color_map=("green", "pink")
+gr.Interface(fn=predict_gradio,
+             theme="default",
+             inputs=["text", "state"],
+             outputs=[chatbot, "state"],
+             allow_flagging="never").launch(share=True)
 
 # COMMAND ----------
 
