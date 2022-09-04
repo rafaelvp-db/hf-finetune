@@ -11,7 +11,6 @@ logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from typing import List, Tuple, Dict
 
 # COMMAND ----------
 

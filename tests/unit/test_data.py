@@ -30,17 +30,15 @@ def test_parse_data(
     
     filepath = Path(config["target_dir"])
     filepath.write_text("\n".join(csv_rows))
-
     get_data_task._parse_df()
-
     df = spark.sql(
         f"""SELECT *
-        FROM {config['db_name']}.{config['table_name']}
+        FROM {config['db_name']}.{config['raw_table']}
         """
     )
 
     assert sorted(target_columns) == sorted(df.columns)
-    assert df.count() == 4
+    assert df.count() == 7
     
 
 def test_launch(get_data_task: GetDataTask):

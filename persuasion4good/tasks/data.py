@@ -47,7 +47,7 @@ class GetDataTask(Task):
             self.spark.sql(f"CREATE DATABASE IF NOT EXISTS {self.conf['db_name']}")
             self.logger.info("Saving into Delta...")
             df.write.saveAsTable(
-                f"{self.conf['db_name']}.{self.conf['table_name']}",
+                f"{self.conf['db_name']}.{self.conf['raw_table']}",
                 mode = "overwrite"
             )
 
