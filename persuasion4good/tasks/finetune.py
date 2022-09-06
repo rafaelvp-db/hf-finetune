@@ -121,12 +121,16 @@ class FinetuningTask(Task):
         sample_size: int = 100,
         embedding_size_quantile: float = 0.95
     ):
+
         max_embedding_length = self.get_max_encoded_length(
             sample_size = sample_size,
             embedding_size_quantile = embedding_size_quantile
         )
 
-        self.logger.info("Tokenizing with padding to ", max_input_length)
+        self.logger.info(
+            "Tokenizing with padding to ",
+            max_embedding_length
+        )
         self._dataset = self._dataset.map(
             lambda x: self.tokenize(
                 x,
@@ -223,3 +227,25 @@ class FinetuningTask(Task):
             model_info = mlflow.pytorch.log_model(model, artifact_path = artifact_path)
 
         return model_info
+
+    def launch(self):
+        self.logger.info("Finetuning task started!")
+        self._filter(min_utterance_len = 2)
+        self._prepare_dataset(
+            sample_size = 100,
+            embedding_size_quantile = 0.95
+        )
+        self.get_trainer()
+        self.train()
+        self.logger.info("Finetuning task finished!")
+
+
+# if you're using python_wheel_task, you'll need the entrypoint function to be used in setup.py
+def entrypoint():  # pragma: no cover
+    task = FinetuningTask()
+    task.launch()
+
+
+# if you're using spark_python_task, you'll need the __main__ block to start the code execution
+if __name__ == "__main__":
+    entrypoint()

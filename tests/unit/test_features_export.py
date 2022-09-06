@@ -2,7 +2,7 @@ from persuasion4good.tasks.export import ExportDatasetTask
 from persuasion4good.tasks.features import FeatureEngineeringTask
 from pyspark.sql import SparkSession
 from conftest import spark
-from fixtures import (
+from fixtures.fixtures import (
     feature_engineering_task,
     export_dataset_task,
     get_data_task,

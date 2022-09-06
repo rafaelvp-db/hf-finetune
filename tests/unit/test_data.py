@@ -1,5 +1,4 @@
-import pytest
-from fixtures import (
+from fixtures.fixtures import (
     get_data_task,
     config,
     target_columns,
