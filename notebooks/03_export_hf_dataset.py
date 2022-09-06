@@ -11,6 +11,7 @@ logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from typing import List, Tuple, Dict
 
 # COMMAND ----------
 
@@ -88,7 +89,11 @@ def convert_to_arrow(df: pd.DataFrame, preserve_index = False):
       "label": "Agent's response."
     }
   )
-  table = pa.Table.from_pandas(df, preserve_index = preserve_index, schema = schema)
+  table = pa.Table.from_pandas(
+    df,
+    preserve_index = preserve_index,
+    schema = schema
+  )
   return table
 
 train_table = convert_to_arrow(df_train)

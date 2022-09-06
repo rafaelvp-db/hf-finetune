@@ -38,7 +38,7 @@ def test_parse_data(
     )
 
     assert sorted(target_columns) == sorted(df.columns)
-    assert df.count() == 7
+    assert df.count() == 9
     
 
 def test_launch(get_data_task: GetDataTask):

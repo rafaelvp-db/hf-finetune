@@ -48,6 +48,14 @@ class ExportDatasetTask(Task):
         preserve_index: bool = False
     ):
 
+        target_columns = ["context", "label"]
+        if sorted(list(df.columns)) != sorted(target_columns):
+            error_msg = f"""
+                Invalid columns in Pandas DF: {df.columns};
+                Expecting: {target_columns}
+            """
+            raise ValueError(error_msg)
+
         schema = pa.schema([
             pa.field('label', pa.string()),
             pa.field('context', pa.string())],
@@ -64,10 +72,36 @@ class ExportDatasetTask(Task):
 
         return table
 
-    def create_hf_dataset(self, df: DataFrame, test_size: float = 0.15) -> DatasetDict:
+    def _collate(self, row, eos_string):
+        collated = ""
+        for i in range(0, len(row)):
+            if row[i] and len(row[i]) > 0:
+                collated += f"{row[i].lower()}{eos_string}"
+        return collated
 
-        pandas_df = df.toPandas()
-        df_train, df_test = train_test_split(pandas_df, test_size=test_size)
+    def create_hf_dataset(
+        self,
+        df: DataFrame,
+        test_size: float = 0.15,
+        eos_string: str = "<EOS>"
+    ) -> DatasetDict:
+
+        df_pandas = df.toPandas()
+        self.logger.info(f"Input Pandas DF for HF has {len(df_pandas)} rows")
+        self.logger.info(f"Columns: {df_pandas.columns}")
+
+        #Merge context colums into one, separated by EOS string
+        df_pandas["context"] = df_pandas\
+            .drop("label", axis=1)\
+            .apply(
+                lambda x:
+                    self._collate(x, eos_string = eos_string), 
+                axis=1
+            )
+        df_pandas["label"] = df_pandas["label"].str.lower()
+        df_pandas = df_pandas.loc[:, ["label", "context"]]
+        
+        df_train, df_test = train_test_split(df_pandas, test_size=test_size)
         train_table = self._create_arrow_table(df_train)
         test_table = self._create_arrow_table(df_test)
 
@@ -84,7 +118,7 @@ class ExportDatasetTask(Task):
             }
         )
 
-        dataset.save_to_disk(self.conf["dataset_dir"])
+        return dataset
 
     def launch(self):
         df = self._filter_columns()

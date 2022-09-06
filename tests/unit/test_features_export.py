@@ -24,7 +24,7 @@ def test_context(
         max_num_turns = 2
     )
 
-    assert df.count() == 4
+    assert df.count() == 6
 
     feature_engineering_task._create_context(df, context_length = 2)
     context_df = spark.sql(
@@ -38,15 +38,11 @@ def test_launch_feature(feature_engineering_task: FeatureEngineeringTask):
     feature_engineering_task.launch()
 
 
-def test_export(spark, config):
-    task = ExportDatasetTask(
-        spark = spark,
-        init_conf = config
-    )
+def test_export(export_dataset_task):
 
-    df = task._filter_columns(context_size = 2)
-    task.create_hf_dataset(df, test_size = 0.5)
-
-    pass
+    df = export_dataset_task._filter_columns(context_size = 4)
+    df = df.union(df)
+    exported_ds = export_dataset_task.create_hf_dataset(df, test_size = 0.5)
+    assert exported_ds
 
 
