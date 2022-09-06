@@ -36,8 +36,11 @@ setup(
     extras_require={"local": LOCAL_REQUIREMENTS, "test": TEST_REQUIREMENTS},
     entry_points = {
         "console_scripts": [
-            "etl = persuasion4good.tasks.sample_etl_task:entrypoint",
-            "ml = persuasion4good.tasks.sample_ml_task:entrypoint",
+            "data = persuasion4good.tasks.data:entrypoint",
+            "export = persuasion4good.tasks.export:entrypoint",
+            "features = persuasion4good.tasks.features:entrypoint",
+            "finetune = persuasion4good.tasks.finetune:entrypoint",
+            "inference = persuasion4good.tasks.inference:entrypoint",
     ]},
     version=__version__,
     description="",
