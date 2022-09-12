@@ -4,9 +4,9 @@ import mlflow.pyfunc
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-class HuggingFaceWrapper(mlflow.pyfunc.PythonModel):
+class ChatbotWrapper(mlflow.pyfunc.PythonModel):
     """
-    Class to use HuggingFace Models
+    Class to use HuggingFace Chatbot / DialoGPT Models
     """
 
     def load_context(self, context):
@@ -15,8 +15,8 @@ class HuggingFaceWrapper(mlflow.pyfunc.PythonModel):
             context: MLflow context where the model artifact is stored.
         """
 
-        self.tokenizer = AutoTokenizer.from_pretrained(context.artifacts["hf_tokenizer_path"])
-        self.model = AutoModelForCausalLM.from_pretrained(context.artifacts["hf_model_path"])
+        self._tokenizer = AutoTokenizer.from_pretrained(context.artifacts["hf_tokenizer_path"])
+        self._model = AutoModelForCausalLM.from_pretrained(context.artifacts["hf_model_path"])
         
     def ask_question(
         self,
@@ -107,4 +107,4 @@ def _load_pyfunc(data_path):
     """
     Load PyFunc implementation. Called by ``pyfunc.load_pyfunc``.
     """
-    return HuggingFaceWrapper(data_path)
+    return ChatbotWrapper(data_path)
