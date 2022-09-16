@@ -87,14 +87,13 @@ class ChatbotWrapper(mlflow.pyfunc.PythonModel):
 
         return answer, chat_history_ids
 
-  
-    def predict(self, model_input):
+    def predict(self, context, model_input):
 
         answer, chat_history_ids = self.ask_question(
             question = model_input["question"],
             chat_history_ids = model_input["chat_history_ids"]
         )
-
+        
         result = {
             "answer": answer,
             "chat_history_ids": chat_history_ids[0].tolist()
