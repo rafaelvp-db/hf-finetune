@@ -1,0 +1,13 @@
+pyspark>=3.2.2
+delta-spark==1.1.0
+dbx
+setuptools
+wheel
+transformers
+torch
+datasets
+pytest
+pytest-cov
+wget
+scikit-learn==1.1.1
+pyarrow

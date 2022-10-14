@@ -1,0 +1,61 @@
+
+.venv
+.pyc
+__pycache__
+.egg
+.egg-info
+.whl
+*/test_trainer
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+build
+dist
+
+# Unit test / coverage reports
+.coverage
+coverage.xml
+junit/*
+htmlcov/*
+
+# Caches
+.pytest_cache/
+
+# VSCode
+.vscode/
+
+# Idea
+.idea/
+*.iml
+
+# MacOS
+.DS_Store
+
+# Databricks eXtensions
+.dbx/lock.json
+.dbx/sync
+
+# local mlflow files
+mlruns/
+
+# Environment variables
+.env
+.venv
+__pycache__
+.hcl
+.terraform
+*.tfvars
+node_modules
+*.lock
+*.hcl
+*.tfstate
+*.lock.info
+.backup
+*.tfstate.*
+*.tfstate
+.tfvars

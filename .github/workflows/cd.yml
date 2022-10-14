@@ -1,0 +1,93 @@
+# Trigger the workflow to deploy to "nonprod" cluster using "develop" environment only when:
+# - an existing pull request with any name/type is merged to the master or develop branch
+# - a commit is directly pushed to the master or develop branch
+ 
+name: Continuous Deployment
+ 
+on:
+  push:
+    branches:
+      - master
+      - develop
+ 
+jobs:
+ 
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      repo: ${{ steps.vars.outputs.repo }}
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - name: Use repository
+        uses: actions/checkout@v2
+      - name: Build variables
+        id: vars
+        run: |
+          echo "::set-output name=repo::$GITHUB_REPOSITORY"
+          echo "::set-output name=tag::$(git rev-parse --short "$GITHUB_SHA")"
+      - name: Upload repository
+        uses: actions/upload-artifact@v2
+        with:
+          name: repository
+          path: |
+            ${{ github.workspace }}/chat
+ 
+  docker:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download repository
+        uses: actions/download-artifact@v2
+        with:
+          name: repository
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          file: ./chat/frontend/Dockerfile
+          tags: ${{ secrets.ACR_REPO }}/frontend:1.0
+          build-args: VER=${{ needs.setup.outputs.tag }}
+      - name: Build and push backend image
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          file: ./chat/backend/Dockerfile
+          tags: ${{ secrets.ACR_REPO }}/backend:1.0
+          build-args: VER=${{ needs.setup.outputs.tag }}
+ 
+  deploy:
+    needs: [setup, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download repository
+        uses: actions/download-artifact@v2
+        with:
+          name: repository
+      - name: Azure login
+        id: login
+        uses: azure/login@v1.4.3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Set AKS context
+        id: set-context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: '${{ secrets.resource_group }}' 
+          cluster-name: '${{ secrets.cluster_name }}'
+      - name: Install helm
+        run: |
+          curl -LO https://get.helm.sh/helm-v3.8.0-linux-amd64.tar.gz
+          tar -zxvf helm-v3.8.0-linux-amd64.tar.gz
+          mv linux-amd64/helm /usr/local/bin/helm
+          helm version
+      - name: Lint helm charts
+        run: helm lint ./infra/helm/
+      - name: Deploy
+        run: |
+          helm upgrade --install --atomic --timeout 1m rest ./chat/helm/ -f ./chat/helm/values.yaml \
+            --namespace persuasion4good --create-namespace

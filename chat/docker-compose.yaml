@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+
+  backend:
+    env_file:
+      - .env
+    image: persuasion4good/backend:1.0
+    ports:
+      - 8000:8080
+
+  frontend:
+    image: persuasion4good/frontend:1.0
+    ports:
+      - 8080:80

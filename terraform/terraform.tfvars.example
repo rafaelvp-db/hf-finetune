@@ -1,0 +1,8 @@
+resource_group_location=
+resource_group_name=
+log_analytics_ws_name=
+registry_name=
+registry_sku=
+cluster_name=
+dns_prefix=
+registry_admin_enabled=
