@@ -1,5 +1,5 @@
 # Databricks notebook source
-#from transformers.pytorch_utils import *
+from transformers.pytorch_utils import *
 import mlflow
 from mlflow.tracking import MlflowClient
 import torch
@@ -9,8 +9,9 @@ client = MlflowClient()
 # COMMAND ----------
 
 import os
+client = MlflowClient()
 
-path = '/dbfs/FileStore/Users/YOUR_USER/persuasion4good/'
+path = '/dbfs/Users/rafael.pierre@databricks.com/persuasion4good/model/'
 os.makedirs(path, exist_ok=True)
 
 client.download_artifacts(
@@ -21,6 +22,10 @@ client.download_artifacts(
 
 # COMMAND ----------
 
+os.listdir(f"{path}/checkpoint-8000/artifacts/checkpoint-8000")
+
+# COMMAND ----------
+
 import torch
 from transformers import (
   AutoModelForCausalLM,
@@ -28,13 +33,13 @@ from transformers import (
   PretrainedConfig
 )
 
+target_dir = f"{path}/checkpoint-8000/artifacts/checkpoint-8000"
+tokenizer_name = target_dir
+model_name = target_dir
+
 import os
 import mlflow
 from chatbot_wrapper import ChatbotWrapper
-
-tokenizer_name = path
-model_name = path
-target_dir = "persuasion4good"
 
 def save_model(
     model_name_or_path: str,
@@ -72,8 +77,8 @@ def save_model(
 
 # DBTITLE 1,Save PyFunc Wrapped Model
 model_info = save_model(
-  model_name_or_path = model_name,
-  tokenizer_name_or_path = tokenizer_name,
+  model_name_or_path = target_dir,
+  tokenizer_name_or_path = target_dir,
   model_name = "persuasion4good"
 )
 

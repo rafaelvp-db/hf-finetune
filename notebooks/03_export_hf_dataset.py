@@ -1,6 +1,7 @@
 # Databricks notebook source
-!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade wheel && pip install pyspark==3.3.0 huggingface_hub==0.7.0 evaluate==0.1.2 pyarrow
-!pip install --upgrade datasets
+!pip install --upgrade pip && \
+  pip install --upgrade transformers && pip install --upgrade wheel && pip install pyspark==3.3.0 huggingface_hub==0.11.0 evaluate==0.1.2 pyarrow
+!pip install datasets==2.6.1
 
 # COMMAND ----------
 
@@ -67,7 +68,6 @@ df_pandas.context.values
 # COMMAND ----------
 
 from datasets import Dataset, DatasetDict
-from transformers import TextDataset
 from datasets.splits import NamedSplit
 from sklearn.model_selection import train_test_split
 import pyarrow as pa
@@ -120,5 +120,3 @@ dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
 # COMMAND ----------
 
 dataset
-
-# COMMAND ----------

@@ -1,4 +1,4 @@
-
+<<<<<<< HEAD
 .venv
 .pyc
 __pycache__
@@ -6,7 +6,7 @@ __pycache__
 .egg-info
 .whl
 */test_trainer
-
+=======
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -45,17 +45,6 @@ mlruns/
 
 # Environment variables
 .env
+.env*
 .venv
 __pycache__
-.hcl
-.terraform
-*.tfvars
-node_modules
-*.lock
-*.hcl
-*.tfstate
-*.lock.info
-.backup
-*.tfstate.*
-*.tfstate
-.tfvars
