@@ -12,8 +12,8 @@ import datasets
 import torch
 
 from transformers import (
-  BlenderbotTokenizer,
-  BlenderbotForConditionalGeneration,
+  BlenderbotSmallTokenizer,
+  BlenderbotSmallForConditionalGeneration,
   DataCollatorWithPadding,
   Trainer,
   TrainingArguments
@@ -34,9 +34,18 @@ test_dataset = dataset["test"]
 
 # COMMAND ----------
 
-mname = "facebook/blenderbot-400M-distill"
-model = BlenderbotForConditionalGeneration.from_pretrained(mname)
-tokenizer = BlenderbotTokenizer.from_pretrained(mname)
+mname = "facebook/blenderbot_small-90M"
+model = BlenderbotSmallForConditionalGeneration.from_pretrained(mname)
+tokenizer = BlenderbotSmallTokenizer.from_pretrained(mname)
+
+# COMMAND ----------
+
+sample_input = "hi, who is donald trump?"
+input_ids = tokenizer(sample_input, return_tensors="pt").input_ids
+input_ids
+
+outputs = model.generate(input_ids)
+print(tokenizer.decode(outputs[0]))
 
 # COMMAND ----------
 
@@ -156,28 +165,29 @@ collator = DataCollatorForLanguageModeling(
 args = TrainingArguments(
   output_dir = f"{TARGET_DIR}/trainer/",
   evaluation_strategy = IntervalStrategy.STEPS, # "steps"
-  eval_steps = 50, # Evaluation and Save happens every 50 steps
+  eval_steps = 1, # Evaluation and Save happens every 50 steps
   save_total_limit = 5, # Only last 5 models are saved. Older ones are deleted.
-  per_device_train_batch_size = 8,
-  per_device_eval_batch_size = 8,
+  per_device_train_batch_size = 1,
+  per_device_eval_batch_size = 1,
   eval_accumulation_steps = 1,
-  learning_rate = 5e-5,
-  weight_decay = 0.0,
-  adam_epsilon = 1e-8,
-  warmup_steps = 0.0,
-  max_grad_norm = 1.0,
-  num_train_epochs = 5.0,
-  logging_steps = 1000,
+  logging_steps = 1,
   no_cuda = False,
   overwrite_output_dir = True,
   seed = 42,
   local_rank = -1,
   fp16 = False,
-  metric_for_best_model = 'eval_loss',
-  load_best_model_at_end = True,
   disable_tqdm = False,
   prediction_loss_only=True
 )
+
+for param in model.model.encoder.parameters():
+  param.requires_grad = False
+
+for param in model.model.decoder.parameters():
+  param.requires_grad = False
+
+for param in model.lm_head.parameters():
+  param.requires_grad = True
 
 trainer = Trainer(
   data_collator = collator,
@@ -206,7 +216,7 @@ with mlflow.start_run(nested = True) as run:
   metrics = trainer.evaluate()
   print(metrics)
   mlflow.log_metrics(metrics)
-  model = trainer.model
+  model = trainer.model.cuda()
   model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
 
 # COMMAND ----------
