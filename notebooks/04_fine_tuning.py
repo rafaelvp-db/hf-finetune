@@ -1,6 +1,5 @@
 # Databricks notebook source
-!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade evaluate wheel && pip install pyspark==3.3.0
-!pip install --upgrade datasets
+!pip install --upgrade pip && pip install --upgrade transformers evaluate wheel datasets
 
 # COMMAND ----------
 
@@ -36,28 +35,27 @@ test_dataset = dataset["test"]
 
 #We will create a custom tokenization function leveraging microsoft/DialoGPT-Medium tokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small", return_special_tokens_mask = True)
+tokenizer = AutoTokenizer.from_pretrained(
+  "microsoft/DialoGPT-medium",
+  return_special_tokens_mask = True,
+  padding_side = "left"
+)
 print(f"Model max length: {tokenizer.model_max_length}")
 print(f"Model max length single sentence: {tokenizer.max_len_single_sentence}")
 print(f"Model max_model_input_sizes: {tokenizer.max_model_input_sizes}")
 
-def tokenize(batch, tokenizer, feature, eos = True, max_length = 1024, pad_to_multiple_of = 8):
+def tokenize(batch, tokenizer, feature, eos = True, max_length = 512, pad_to_multiple_of = 8):
   tokenizer.pad_token = tokenizer.eos_token
   
   if eos:
     batch[feature] = batch[feature].replace("<EOS>", tokenizer.eos_token)
-    
-  remainder = pad_to_multiple_of - (max_length % pad_to_multiple_of)
-  max_length_multiple = max_length + remainder
   
   input_ids = tokenizer(
     batch[feature],
     return_tensors = "pt",
     return_attention_mask = False,
     padding = "max_length",
-    truncation = "longest_first",
-    max_length = max_length_multiple,
-    pad_to_multiple_of = pad_to_multiple_of
+    max_length = 256
   )["input_ids"][0]
   
   result_key = "labels"
@@ -72,8 +70,32 @@ def tokenize(batch, tokenizer, feature, eos = True, max_length = 1024, pad_to_mu
 
 # COMMAND ----------
 
+dataset["train"]["label"][:10]
+
+# COMMAND ----------
+
+dataset = dataset.map(lambda example: {"context": example['context'].lstrip()})
+dataset = dataset.map(lambda example: {"label": example['label'].lstrip()})
+
+# COMMAND ----------
+
+dataset["train"]["label"][:10]
+
+# COMMAND ----------
+
 # DBTITLE 1,Making sure we don't have too small utterances
-dataset = dataset.filter(lambda example: len(example['label']) > 2 and len(example['context']) > 2)
+dataset = dataset.filter(
+  lambda example:
+  (
+    (len(example['label']) > 20 and len(example['context']) > 20)
+    and
+    (len(example['label']) < 70)
+  )
+)
+
+# COMMAND ----------
+
+dataset["train"]["label"][:10]
 
 # COMMAND ----------
 
@@ -96,7 +118,7 @@ for i in range(0, 100):
   
   
 mean_embed_size = np.mean(embedded_lengths)
-percentile_95th = np.quantile(embedded_lengths, 0.85)
+percentile_95th = np.quantile(embedded_lengths, 0.95)
 std_embed_size = np.std(embedded_lengths)
 
 print("Average embedding length: ", mean_embed_size)
@@ -108,36 +130,45 @@ print("STD for embedding length: ", std_embed_size)
 
 # COMMAND ----------
 
-max_input_length = int(percentile_95th)
-print("Tokenizing with padding to ", max_input_length)
-dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "context", max_length = max_input_length), remove_columns = ["context"])
-dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "label", eos = False, max_length = max_input_length), remove_columns = ["label"])
+print("Tokenizing with padding to max_length")
+dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "context"), remove_columns = ["context"])
+dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "label", eos = False), remove_columns = ["label"])
 
 # COMMAND ----------
 
 # DBTITLE 1,Checking our outputs
-print("Sample (encoded) input_ids: ", dataset["train"]["input_ids"][0][:10], "length: ", len(dataset["train"]["input_ids"][0]))
-print("Sample (encoded) labels: ", dataset["train"]["labels"][0][:10], "length: ", len(dataset["train"]["labels"][0]))
+print(
+  "Sample (encoded) input_ids: ",
+  dataset["train"]["input_ids"][0][-10:],
+  "length: ", len(dataset["train"]["input_ids"][0])
+)
+print(
+  "Sample (encoded) labels: ",
+  dataset["train"]["labels"][0][-10:],
+  "length: ",
+  len(dataset["train"]["labels"][0])
+)
 
 # COMMAND ----------
 
 # DBTITLE 1,Sanity Checks
-print("Decoded embedding - context: ", tokenizer.decode(dataset["train"].shuffle()["input_ids"][0]), "\n")
-print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"].shuffle()["labels"][0]))
+print("Decoded embedding - context: ", tokenizer.decode(dataset["train"].shuffle()["input_ids"][0][-10:]), "\n")
+print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"].shuffle()["labels"][0][-10:]))
 
 # COMMAND ----------
 
 # DBTITLE 1,Downloading our Backbone Model
-from transformers import AutoModelWithLMHead, AutoConfig #AutoModelForCausalLM
-config = AutoConfig.from_pretrained("microsoft/DialoGPT-small")
-model = AutoModelWithLMHead.from_pretrained(
-  "microsoft/DialoGPT-small",
+from transformers import AutoModelForCausalLM, AutoConfig
+config = AutoConfig.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelForCausalLM.from_pretrained(
+  "microsoft/DialoGPT-medium",
   config = config
 )
 
 # COMMAND ----------
 
-# By default, Hugging Face has an MLflow callback which is alredy switched on. We just need to setup some parameters.
+# By default, Hugging Face has an MLflow callback which is alredy switched on. 
+# We just need to setup some parameters.
 
 import os
 
@@ -145,13 +176,29 @@ os.environ["MLFLOW_EXPERIMENT_NAME"] = "/Users/rafael.pierre@databricks.com/pers
 os.environ["MLFLOW_FLATTEN_PARAMS"] = "1"
 os.environ["HF_MLFLOW_LOG_ARTIFACTS"] = "1"
 os.environ["MLFLOW_NESTED_RUN"] = "1"
+os.environ["WANDB_DISABLED"] = "1"
 
 # COMMAND ----------
 
-def compute_metrics(eval_loss: float):
-  
-  loss = torch.exp(eval_loss).float()
-  return loss
+model
+
+# COMMAND ----------
+
+# DBTITLE 1,Freezing Layers
+for param in model.transformer.parameters():
+  param.requires_grad = False
+
+for param in model.lm_head.parameters():
+  param.requires_grad = True
+
+# COMMAND ----------
+
+from evaluate import load
+
+def compute_metrics(eval_preds):
+  metric = load("perplexity", module_type="metric")
+  results = metric.compute(predictions=eval_preds, model_id='gpt2')
+  return results
 
 # COMMAND ----------
 
@@ -167,27 +214,29 @@ collator = DataCollatorForLanguageModeling(
 args = TrainingArguments(
   output_dir = f"{TARGET_DIR}/trainer/",
   evaluation_strategy = IntervalStrategy.STEPS, # "steps"
-  eval_steps = 50, # Evaluation and Save happens every 50 steps
+  eval_steps = 100, # Evaluation and Save happens every 50 steps
   save_total_limit = 5, # Only last 5 models are saved. Older ones are deleted.
   per_device_train_batch_size = 4,
-  per_device_eval_batch_size = 4,
-  eval_accumulation_steps = 1,
+  per_device_eval_batch_size = 2,
+  eval_accumulation_steps = 10,
   learning_rate = 5e-5,
   weight_decay = 0.0,
   adam_epsilon = 1e-8,
   warmup_steps = 0.0,
   max_grad_norm = 1.0,
   num_train_epochs = 10000.0,
-  logging_steps = 1000,
+  logging_steps = 10,
   no_cuda = False,
   overwrite_output_dir = True,
   seed = 42,
   local_rank = -1,
   fp16 = False,
   metric_for_best_model = 'eval_loss',
+  greater_is_better = False,
   load_best_model_at_end = True,
   disable_tqdm = False,
-  prediction_loss_only=True
+  prediction_loss_only=True,
+  report_to = ["mlflow"]
 )
 
 trainer = Trainer(
@@ -200,7 +249,7 @@ trainer = Trainer(
   tokenizer = tokenizer,
   callbacks = [EarlyStoppingCallback(
     early_stopping_patience = 5,
-    early_stopping_threshold = 0.0005
+    early_stopping_threshold = 0.0001
   )]
 )
 
@@ -212,7 +261,7 @@ import torch
 torch.cuda.empty_cache()
 
 with mlflow.start_run(nested = True) as run:
-  #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+  os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
   trainer.train()
   metrics = trainer.evaluate()
   print(metrics)
@@ -221,3 +270,5 @@ with mlflow.start_run(nested = True) as run:
   model_info = mlflow.pytorch.log_model(model, artifact_path = "model")
 
 # COMMAND ----------
+
+

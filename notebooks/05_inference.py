@@ -1,5 +1,5 @@
 # Databricks notebook source
-!pip install --upgrade pip && pip install --upgrade transformers
+!pip install --upgrade pip && pip install --upgrade transformers -q
 
 # COMMAND ----------
 
@@ -18,24 +18,24 @@ client = MlflowClient()
 
 !mkdir /tmp/model
 
-client.download_artifacts(
-  run_id = "4b2c833519dd481086f4e7b6d291d0e3",
-  path = "checkpoint-8000",
-  dst_path = "/tmp/model/"
-)
+#client.download_artifacts(
+#  run_id = "8253d8f3392e4e09a7c03bde058fa4f0",
+#  path = "checkpoint-3000",
+#  dst_path = "/tmp/model/"
+#)
 
 # COMMAND ----------
 
-TARGET_DIR = "/tmp/model/checkpoint-8000/artifacts/checkpoint-8000"
+TARGET_DIR = "/dbfs/tmp/persuasion4good/trainer/checkpoint-1000/"
 !ls {TARGET_DIR}
 
 # COMMAND ----------
 
-from transformers import AutoModelWithLMHead, AutoConfig, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
 
 config = AutoConfig.from_pretrained(TARGET_DIR)
-model = AutoModelWithLMHead.from_pretrained(TARGET_DIR, config = config)
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-small")
+model = AutoModelForCausalLM.from_pretrained(TARGET_DIR, config = config)
+tokenizer = AutoTokenizer.from_pretrained(TARGET_DIR, padding_side = "left")
 
 model.to("cpu")
 
@@ -52,15 +52,15 @@ import numpy as np
 
 def generate(
   question,
+  max_new_tokens = 70,
   chat_history_ids = [],
-  max_new_tokens = 25,
   temperature = 1.0,
-  repetition_penalty = 10.0,
-  do_sample = True,
-  top_k = 5,
-  top_p = 0.9,
+  repetition_penalty = 20.0,
+  do_sample = False,
+  top_k = 10,
+  top_p = 0.75,
   no_repeat_ngram_size = 3,
-  length_penalty = 20.0
+  length_penalty = 100.0
 ):
   """
     This function is a wrapper on top of our fine tuned model.
@@ -73,6 +73,8 @@ def generate(
     return_tensors = 'pt'
   )
 
+  print(f"User input: {new_user_input_ids}")
+
   chat_history_tensor = torch.tensor(chat_history_ids)
   if (len(chat_history_ids) > 0):
     # Beginning of conversation
@@ -84,17 +86,13 @@ def generate(
     
   chat_history_ids = model.generate(
     bot_input_ids,
-    eos_token_id = tokenizer.eos_token_id,
-    max_new_tokens = max_new_tokens,
+    max_length = 200,
     pad_token_id = tokenizer.eos_token_id,  
-    no_repeat_ngram_size = no_repeat_ngram_size,
-    do_sample  = do_sample, 
-    top_k = top_k, 
-    top_p = top_p,
-    repetition_penalty = repetition_penalty,
-    temperature = temperature,
-    length_penalty = length_penalty,
-    forced_eos_token_id = tokenizer.eos_token_id
+    no_repeat_ngram_size = 3,       
+    do_sample = True, 
+    top_k = 100, 
+    top_p = 0.7,
+    temperature = 0.8
   )
   
   print(chat_history_ids)
@@ -144,11 +142,11 @@ answer = result["answer"]
 chat_history_ids = result["chat_history_ids"]
 
 print("Question: ", model_input["question"])
-print("Answer: ", answer)
+print("Answer: ", answer.split("   "))
 
 # COMMAND ----------
 
-question = "no I haven't"
+question = "nothing planned, you?"
 
 model_input = {
   "question": question,
@@ -164,7 +162,7 @@ print("Answer: ", answer)
 
 # COMMAND ----------
 
-question = "nice, how can I donate?"
+question = "great, sounds fun."
 
 model_input = {
   "question": question,
@@ -180,113 +178,4 @@ print("Answer: ", answer)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC 
-# MAGIC ## Creating an Interface with Gradio
 
-# COMMAND ----------
-
-!pip install gradio
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC ### Step 1: The Basics
-
-# COMMAND ----------
-
-import gradio as gr
-
-flagging_dir = "/tmp/flagged"
-
-def greet(name):
-    return "Hello " + name + "!"
-
-demo = gr.Interface(fn = greet, inputs = "text", outputs = "text", allow_flagging = "never")
-routes = demo.launch(share = True)
-
-# COMMAND ----------
-
-displayHTML(f"<h3>We can access our Gradio by clicking this link: <a href='{routes[2]}'>Gradio App</a> 😀</h2>")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC ## Step 2: Plugging our DialoGPT Model into our Gradio App
-# MAGIC 
-# MAGIC * Plugging our chatbot into our Gradio app is simple - it can be done with 3 lines of code!
-# MAGIC * However, we need to change our `predict` function slightly
-
-# COMMAND ----------
-
-import gradio as gr
-
-def generate(
-  question,
-  history = [],
-  max_new_tokens = 25,
-  temperature = 1.0,
-  repetition_penalty = 10.0,
-  do_sample = True,
-  top_k = 5,
-  top_p = 0.9,
-  no_repeat_ngram_size = 3,
-  length_penalty = 20.0
-):
-  """
-    This function is a wrapper on top of our fine tuned model.
-    It preprocesses and tokenizes our inputs, and calls the generate function
-    from the DialoGPT model we trained.
-  """
-  
-  new_user_input_ids = tokenizer.encode(
-    str(question) + str(tokenizer.eos_token),
-    return_tensors = 'pt'
-  )
-
-  chat_history_ids = tokenizer(tokenizer.eos_token.join(history))
-  chat_history_tensor = torch.tensor(chat_history_ids)
-  if (len(chat_history_ids) > 0):
-    # Continuing an existing conversation
-    bot_input_ids = torch.cat([chat_history_tensor, torch.flatten(new_user_input_ids)], dim = -1)
-    bot_input_ids = torch.reshape(bot_input_ids, shape = (1, -1))
-  else:
-    # Beginning of conversation
-    bot_input_ids = new_user_input_ids
-    
-  chat_history_ids = model.generate(
-    bot_input_ids,
-    eos_token_id = tokenizer.eos_token_id,
-    max_new_tokens = max_new_tokens,
-    pad_token_id = tokenizer.eos_token_id,  
-    no_repeat_ngram_size = no_repeat_ngram_size,
-    do_sample  = do_sample, 
-    top_k = top_k, 
-    top_p = top_p,
-    repetition_penalty = repetition_penalty,
-    temperature = temperature,
-    length_penalty = length_penalty,
-    forced_eos_token_id = tokenizer.eos_token_id
-  )
-
-  # Using our tokenizer to decode the outputs from our model
-  # (e.g. convert model outputs to text)
-  
-  answer = tokenizer.decode(
-    chat_history_ids[:, bot_input_ids.shape[-1]:][0],
-    skip_special_tokens = True
-  )
-
-  return answer, chat_history_ids
-
-
-chatbot = gr.Chatbot().style(color_map=("green", "pink")
-gr.Interface(fn=predict_gradio,
-             theme="default",
-             inputs=["text", "state"],
-             outputs=[chatbot, "state"],
-             allow_flagging="never").launch(share=True)
-
-# COMMAND ----------

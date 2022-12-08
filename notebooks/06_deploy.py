@@ -1,21 +1,20 @@
 # Databricks notebook source
-#from transformers.pytorch_utils import *
 import mlflow
 from mlflow.tracking import MlflowClient
 import torch
+import os
 
 client = MlflowClient()
 
+path = '/dbfs/FileStore/Users/rafael.pierre@databricks.com/persuasion4good/'
+
 # COMMAND ----------
 
-import os
-
-path = '/dbfs/FileStore/Users/YOUR_USER/persuasion4good/'
 os.makedirs(path, exist_ok=True)
 
 client.download_artifacts(
-  run_id = "4b2c833519dd481086f4e7b6d291d0e3",
-  path = "checkpoint-8000",
+  run_id = "62ef2b8df9b1447db0d7c5d8a2c6bab9",
+  path = "checkpoint-7500",
   dst_path = path
 )
 
@@ -56,12 +55,12 @@ def save_model(
     with mlflow.start_run() as run:
         model_info = mlflow.pyfunc.log_model(
             artifact_path = mlflow_pyfunc_model_path,
-            python_model = ChatbotWrapper(),
+            python_model = ChatbotWrapper(artifact_path = "checkpoint-7500/artifacts/checkpoint-7500"),
             code_path = ["./chatbot_wrapper.py"],
             artifacts=artifacts,
             pip_requirements=[
               "numpy==1.20.1",
-              "transformers==4.16.2",
+              "transformers==4.24.0",
               "torch==1.10.2"
             ]
         )
@@ -76,10 +75,6 @@ model_info = save_model(
   tokenizer_name_or_path = tokenizer_name,
   model_name = "persuasion4good"
 )
-
-# COMMAND ----------
-
-model_info
 
 # COMMAND ----------
 

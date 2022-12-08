@@ -8,6 +8,10 @@ class ChatbotWrapper(mlflow.pyfunc.PythonModel):
     """
     Class to use HuggingFace Chatbot / DialoGPT Models
     """
+    
+    def __init__(self, artifact_path):
+        super().__init__()
+        self.artifact_path = artifact_path
 
     def load_context(self, context):
         """This method is called when loading an MLflow model with pyfunc.load_model(), as soon as the Python Model is constructed.
@@ -15,8 +19,8 @@ class ChatbotWrapper(mlflow.pyfunc.PythonModel):
             context: MLflow context where the model artifact is stored.
         """
 
-        self._tokenizer = AutoTokenizer.from_pretrained(context.artifacts["hf_tokenizer_path"])
-        self._model = AutoModelForCausalLM.from_pretrained(context.artifacts["hf_model_path"])
+        self._tokenizer = AutoTokenizer.from_pretrained(self.artifact_path)
+        self._model = AutoModelForCausalLM.from_pretrained(self.artifact_path)
         
     def ask_question(
         self,
