@@ -1,5 +1,5 @@
 # Databricks notebook source
-!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade wheel && pip install pyspark==3.3.0 huggingface_hub==0.7.0 evaluate==0.1.2 pyarrow
+!pip install --upgrade pip && pip install --upgrade transformers && pip install --upgrade wheel && huggingface_hub==0.7.0 evaluate==0.1.2 pyarrow
 !pip install --upgrade datasets
 
 # COMMAND ----------
@@ -30,10 +30,7 @@ from typing import List, Tuple, Dict
 # DBTITLE 1,Taking out columns that won't be used
 from pyspark.sql import functions as F
 
-context_size = 5
-query_filter = " AND ".join(["length(spark_catalog.persuasiondb.dialog_contextualized.`context/{}`) > 0".format(i) for i in range(1, context_size + 1)])
-query = f"select * from persuasiondb.dialog_contextualized WHERE {query_filter}"
-print(query_filter)
+query = f"select * from persuasiondb.dialog_contextualized"
 
 df_final = spark.sql(query) \
   .drop(
@@ -46,26 +43,35 @@ df_final = spark.sql(query) \
 # COMMAND ----------
 
 df_pandas = df_final.toPandas()
-target_columns = reversed([column for column in df_pandas.columns])
-df_pandas = df_pandas.loc[:, target_columns].fillna("")
 df_pandas
 
 # COMMAND ----------
 
-def collate(row):
-  collated = ""
-  for i in range(0, len(row)):
-    if row[i] and len(row[i]) > 0:
-      collated += f"{row[i].lower()}<EOS>"
-  return collated
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+
+def collate(row, eos_token = tokenizer.eos_token):
+    collated = ""
+    context = list(reversed(row))
+    for i in range(0, len(row)):
+        collated += f"{context[i].lower()}{eos_token}".lstrip()
+    return collated
     
 df_pandas["context"] = df_pandas.drop("label", axis=1).apply(lambda x: collate(x), axis=1)
 df_pandas["label"] = df_pandas["label"].str.lower()
 df_pandas = df_pandas.loc[:, ["label", "context"]]
-df_pandas.context.values
+df_pandas.context.values[0]
 
 # COMMAND ----------
 
+df = spark.createDataFrame(df_pandas)
+spark.sql("drop table if exists persuasiondb.final_dataset")
+df.write.saveAsTable("persuasiondb.final_dataset")
+
+# COMMAND ----------
+
+from sklearn.model_selection import train_test_split
 from datasets import Dataset, DatasetDict
 from transformers import TextDataset
 from datasets.splits import NamedSplit
@@ -79,46 +85,54 @@ TARGET_DIR = "/tmp/persuasion4good"
 #Create training and testing set
 df_train, df_test = train_test_split(df_pandas, test_size=0.15)
 
-def convert_to_arrow(df: pd.DataFrame, preserve_index = False):
-
-  schema = pa.schema([
-    pa.field('label', pa.string()),
-    pa.field('context', pa.string())],
-    metadata={
-      "context": "Conversation history.",
-      "label": "Agent's response."
-    }
-  )
-  table = pa.Table.from_pandas(
-    df,
-    preserve_index = preserve_index,
-    schema = schema
-  )
-  return table
-
-train_table = convert_to_arrow(df_train)
-test_table = convert_to_arrow(df_test)
-print(train_table.schema)
-
 dataset = DatasetDict({
-  "train": Dataset(
-    arrow_table = train_table, 
-    split = NamedSplit("train")
-  ),
-  "test": Dataset(
-    arrow_table = test_table,
-    split = NamedSplit("test")
-  )
+  "train": Dataset.from_pandas(df_train, split = "train"),
+  "test": Dataset.from_pandas(df_test, split = "test")
 })
 
 dataset
 
 # COMMAND ----------
 
-dataset.save_to_disk("/dbfs/tmp/persuasion4good/dataset")
+def tokenize(batch, tokenizer, feature, eos = True, max_length = 512, pad_to_multiple_of = 8):
+    tokenizer.pad_token = tokenizer.eos_token
+
+    input_ids = tokenizer(
+        batch[feature],
+        return_tensors = "pt",
+        return_attention_mask = False,
+        padding = "max_length",
+        max_length = max_length
+    )["input_ids"][0]
+
+    result_key = "labels"
+    if feature != "label":
+        result_key = "input_ids"
+
+    result = {
+        f"{result_key}": input_ids
+    }
+
+    return result
+
+dataset = dataset.map(lambda x: tokenize(x, tokenizer, max_length = 256, feature = "context"), remove_columns = ["context"])
+dataset = dataset.map(lambda x: tokenize(x, tokenizer, max_length = 256, feature = "label", eos = False), remove_columns = ["label"])
+
+# COMMAND ----------
+
+!rm -rf /tmp/persuasion4good
+dataset.save_to_disk("/tmp/persuasion4good/dataset")
+
+# COMMAND ----------
+
+import datasets
+dataset = datasets.load_from_disk("/tmp/persuasion4good/dataset/")
 
 # COMMAND ----------
 
 dataset
 
 # COMMAND ----------
+
+!mkdir /dbfs/tmp/persuasion4good
+!cp -r /tmp/persuasion4good/dataset/ /dbfs/tmp/persuasion4good/dataset

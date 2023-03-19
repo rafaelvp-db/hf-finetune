@@ -48,3 +48,7 @@ df.write.saveAsTable("persuasiondb.full_dialog", mode = "overwrite")
 # MAGIC %sql
 # MAGIC 
 # MAGIC select * from persuasiondb.full_dialog ORDER BY conversation_id, id
+
+# COMMAND ----------
+
+
