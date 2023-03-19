@@ -32,7 +32,12 @@
 
 # COMMAND ----------
 
-# DBTITLE 1,Summary Statistics
+# MAGIC %md
+# MAGIC 
+# MAGIC We have a long tail. Let's look into some basic summary statistics:
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC 
 # MAGIC select 
@@ -76,56 +81,21 @@ df_filtered.write.saveAsTable("persuasiondb.filtered_conversations", mode = "ove
 
 # COMMAND ----------
 
+display(df_filtered)
+
+# COMMAND ----------
+
 from pyspark.sql import functions as F
 from pyspark.sql import window as W
 
-df_exploded = df_filtered.drop("turn").withColumn(
-  "shortened_utterance",
-  F.explode(
-    F.split(F.col("utterance"), "[\.|\?|\!\,]")
-  )
-).filter("length(shortened_utterance) > 0")
-
-df_exploded = df_exploded.withColumn(
-  "turn",
-  F.row_number().over(
-    W.Window.orderBy('conversation_id', 'id')
-  )
-)\
-.drop("utterance", "id")
-
-display(df_exploded)
-
-# COMMAND ----------
-
-index_by_agent_message_sequence_window = \
-  W.Window \
-  .partitionBy("conversation_id", "agent") \
-  .orderBy("turn")
-
-# Define a common sequence identifier for consecutive messages by a given agent
-index_by_agent_message_sequence = df_exploded \
-  .withColumn("agent_message_sequence_number", F.col("turn") - F.row_number().over(index_by_agent_message_sequence_window))
-
-agent_message_sequence = index_by_agent_message_sequence \
-  .orderBy("conversation_id", "turn", "agent_message_sequence_number") \
-  .groupBy("conversation_id", "agent", "agent_message_sequence_number") \
-  .agg(
-    F.collect_list("shortened_utterance").alias("agent_message_sequence")
+df_filtered = df_filtered.filter("length(utterance) > 0").drop("turn")
+df_filtered = df_filtered \
+  .withColumnRenamed(
+    "id",
+    "turn"
   )
 
-# COMMAND ----------
-
-validate_df = index_by_agent_message_sequence \
-  .join(agent_message_sequence, ["conversation_id","agent","agent_message_sequence_number"]) \
-  .orderBy("conversation_id", "turn") \
-  .select("conversation_id", "turn", "agent", "shortened_utterance", "agent_message_sequence")
-
-display(validate_df.drop_duplicates(["agent_message_sequence"]))
-
-# COMMAND ----------
-
-df_exploded.write.saveAsTable("persuasiondb.exploded_conversations", mode="overwrite")
+display(df_filtered)
 
 # COMMAND ----------
 
@@ -136,19 +106,23 @@ df_exploded.write.saveAsTable("persuasiondb.exploded_conversations", mode="overw
 # COMMAND ----------
 
 CONTEXT_LENGTH = 20
-df_context = df_exploded.withColumnRenamed("shortened_utterance", "label")
+df_context = df_filtered.withColumnRenamed("utterance", "label")
 window  = W.Window.partitionBy("conversation_id").orderBy(F.col("turn").desc())
 
 for i in range(1, CONTEXT_LENGTH + 1):
   df_context = df_context.withColumn(f"context/{i}", F.lead(F.lower(F.col("label")), i).over(window))
 
-df_context_filtered = df_context #df_context.dropna(subset = [f"context/{i}" for i in range(1, CONTEXT_LENGTH + 1)])
-display(df_context_filtered.filter("label = 'hi'"))
+df_context_filtered = df_context.dropna(
+  how = "all",
+  subset = [f"context/{i}" for i in range(1, CONTEXT_LENGTH + 1)]
+)
+
+# Agent contains the agent for the last utterance before 'label'
+df_context_filtered = df_context_filtered.filter("agent = 0").fillna("")
+display(df_context_filtered)
 
 # COMMAND ----------
 
-df_context_filtered = df_context_filtered.orderBy(F.col("conversation_id"), F.col("id").desc())
-spark.sql("drop table if exists persuasiondb.dialog_contextualized")
 df_context_filtered.write.saveAsTable("persuasiondb.dialog_contextualized", mode = "overwrite")
 
 # COMMAND ----------
@@ -159,18 +133,36 @@ df_context_filtered.write.saveAsTable("persuasiondb.dialog_contextualized", mode
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC 
-# MAGIC select * from persuasiondb.dialog_contextualized
-# MAGIC where label = 'hi'
+from pyspark.sql.window import Window
+
+window = Window().orderBy(F.lit('A'))
+
+context_columns = [f"context/{i}" for i in range(CONTEXT_LENGTH, 0, -1)]
+
+eot_string = "<EOT>"
+df_context_merged = df_context_filtered \
+  .fillna(" ") \
+  .withColumn(
+    "context",
+    F.concat_ws(eot_string, *context_columns)
+  ) \
+  .withColumn(
+    "context_trimmed",
+    F.regexp_replace(F.col("context"), "(<EOT>){2,10}", "")
+  ) \
+  .withColumn(
+    "id",
+    F.row_number().over(window)
+  ) \
+  .select(
+    "conversation_id",
+    "id",
+    "context_trimmed",
+    "label"
+  )
+
+display(df_context_merged)
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC 
-# MAGIC select * from persuasiondb.dialog_contextualized
-# MAGIC where length(label) = 0
-
-# COMMAND ----------
-
-
+df_context_merged.write.saveAsTable("persuasiondb.train", mode = "overwrite")

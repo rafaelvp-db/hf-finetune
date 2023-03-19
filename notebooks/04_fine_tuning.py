@@ -7,8 +7,7 @@ import logging
 logger = spark._jvm.org.apache.log4j
 logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
 
-import datasets
-import torch
+from dataset import PersuasionDataset
 
 from transformers import (
   AutoTokenizer,
@@ -21,139 +20,25 @@ from transformers import (
 TARGET_DIR = "/dbfs/tmp/persuasion4good"
 !rm -rf {TARGET_DIR}/trainer
 
-dataset = datasets.load_from_disk(f"{TARGET_DIR}/dataset", keep_in_memory = True)
-train_dataset = dataset["train"]
-test_dataset = dataset["test"]
+# COMMAND ----------
+
+from torch.utils.data import random_split
+
+full_dataset = PersuasionDataset(
+  database = "persuasiondb",
+  table = "context_final",
+  max_length_input = 512
+)
+
+train_size = int(0.8 * len(full_dataset))
+test_size = len(full_dataset) - train_size
+train_dataset, test_dataset = random_split(full_dataset, [train_size, test_size])
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC 
 # MAGIC ## Loading our HF Tokenizer and Backbone Model
-
-# COMMAND ----------
-
-#We will create a custom tokenization function leveraging microsoft/DialoGPT-Medium tokenizer
-
-tokenizer = AutoTokenizer.from_pretrained(
-  "microsoft/DialoGPT-medium",
-  return_special_tokens_mask = True,
-  padding_side = "left"
-)
-print(f"Model max length: {tokenizer.model_max_length}")
-print(f"Model max length single sentence: {tokenizer.max_len_single_sentence}")
-print(f"Model max_model_input_sizes: {tokenizer.max_model_input_sizes}")
-
-def tokenize(batch, tokenizer, feature, eos = True, max_length = 512, pad_to_multiple_of = 8):
-  tokenizer.pad_token = tokenizer.eos_token
-  
-  if eos:
-    batch[feature] = batch[feature].replace("<EOS>", tokenizer.eos_token)
-  
-  input_ids = tokenizer(
-    batch[feature],
-    return_tensors = "pt",
-    return_attention_mask = False,
-    padding = "max_length",
-    max_length = 256
-  )["input_ids"][0]
-  
-  result_key = "labels"
-  if feature != "label":
-    result_key = "input_ids"
-    
-  result = {
-    f"{result_key}": input_ids
-  }
-  
-  return result
-
-# COMMAND ----------
-
-dataset["train"]["label"][:10]
-
-# COMMAND ----------
-
-dataset = dataset.map(lambda example: {"context": example['context'].lstrip()})
-dataset = dataset.map(lambda example: {"label": example['label'].lstrip()})
-
-# COMMAND ----------
-
-dataset["train"]["label"][:10]
-
-# COMMAND ----------
-
-# DBTITLE 1,Making sure we don't have too small utterances
-dataset = dataset.filter(
-  lambda example:
-  (
-    (len(example['label']) > 20 and len(example['context']) > 20)
-    and
-    (len(example['label']) < 70)
-  )
-)
-
-# COMMAND ----------
-
-dataset["train"]["label"][:10]
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC ### Tokenizing our dataset
-
-# COMMAND ----------
-
-import numpy as np
-import torch
-
-#Let's try to have an idea about the sizes we are dealing with
-
-embedded_lengths = []
-
-for i in range(0, 100):
-  embedded = tokenizer(dataset["train"].shuffle()[0]["context"], return_tensors = "pt", return_attention_mask = False)
-  embedded_lengths.append(len(torch.flatten(embedded["input_ids"])))
-  
-  
-mean_embed_size = np.mean(embedded_lengths)
-percentile_95th = np.quantile(embedded_lengths, 0.95)
-std_embed_size = np.std(embedded_lengths)
-
-print("Average embedding length: ", mean_embed_size)
-print("Median embedding length: ", np.median(embedded_lengths))
-print("95th percentile - embedding length: ", percentile_95th)
-print("Max embedding length: ", np.max(embedded_lengths))
-print("Min embedding length: ", np.min(embedded_lengths))
-print("STD for embedding length: ", std_embed_size)
-
-# COMMAND ----------
-
-print("Tokenizing with padding to max_length")
-dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "context"), remove_columns = ["context"])
-dataset = dataset.map(lambda x: tokenize(x, tokenizer, feature = "label", eos = False), remove_columns = ["label"])
-
-# COMMAND ----------
-
-# DBTITLE 1,Checking our outputs
-print(
-  "Sample (encoded) input_ids: ",
-  dataset["train"]["input_ids"][0][-10:],
-  "length: ", len(dataset["train"]["input_ids"][0])
-)
-print(
-  "Sample (encoded) labels: ",
-  dataset["train"]["labels"][0][-10:],
-  "length: ",
-  len(dataset["train"]["labels"][0])
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Sanity Checks
-print("Decoded embedding - context: ", tokenizer.decode(dataset["train"].shuffle()["input_ids"][0][-10:]), "\n")
-print("Decoded embedding - labels: ", tokenizer.decode(dataset["train"].shuffle()["labels"][0][-10:]))
 
 # COMMAND ----------
 
@@ -167,6 +52,35 @@ model = AutoModelForCausalLM.from_pretrained(
 
 # COMMAND ----------
 
+# DBTITLE 1,DialoGPT Example
+model
+
+# COMMAND ----------
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
+
+# Let's chat for 5 lines
+for step in range(5):
+    # encode the new user input, add the eos_token and return a tensor in Pytorch
+    new_user_input_ids = tokenizer.encode(input(">> User:") + tokenizer.eos_token, return_tensors='pt')
+
+    # append the new user input tokens to the chat history
+    bot_input_ids = torch.cat([chat_history_ids, new_user_input_ids], dim=-1) if step > 0 else new_user_input_ids
+
+    # generated a response while limiting the total chat history to 1000 tokens, 
+    chat_history_ids = model.generate(bot_input_ids, max_length=1000, pad_token_id=tokenizer.eos_token_id)
+
+    # pretty print last ouput tokens from bot
+    print("DialoGPT: {}".format(tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)))
+
+# COMMAND ----------
+
+# DBTITLE 1,Configuring MLflow Integration
 # By default, Hugging Face has an MLflow callback which is alredy switched on. 
 # We just need to setup some parameters.
 
@@ -177,10 +91,6 @@ os.environ["MLFLOW_FLATTEN_PARAMS"] = "1"
 os.environ["HF_MLFLOW_LOG_ARTIFACTS"] = "1"
 os.environ["MLFLOW_NESTED_RUN"] = "1"
 os.environ["WANDB_DISABLED"] = "1"
-
-# COMMAND ----------
-
-model
 
 # COMMAND ----------
 
@@ -224,7 +134,7 @@ args = TrainingArguments(
   adam_epsilon = 1e-8,
   warmup_steps = 0.0,
   max_grad_norm = 1.0,
-  num_train_epochs = 10000.0,
+  num_train_epochs = 1.0,
   logging_steps = 10,
   no_cuda = False,
   overwrite_output_dir = True,
@@ -240,13 +150,12 @@ args = TrainingArguments(
 )
 
 trainer = Trainer(
-  data_collator = collator,
   compute_metrics = compute_metrics,
   model = model.cuda(),
   args = args,
-  train_dataset = dataset["train"],
-  eval_dataset = dataset["test"],
-  tokenizer = tokenizer,
+  train_dataset = train_dataset,
+  eval_dataset = test_dataset,
+  #tokenizer = tokenizer,
   callbacks = [EarlyStoppingCallback(
     early_stopping_patience = 5,
     early_stopping_threshold = 0.0001

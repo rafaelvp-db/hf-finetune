@@ -11,22 +11,20 @@
 
 from transformers.pytorch_utils import *
 import mlflow
-from mlflow.tracking import MlflowClient
+from mlflow.artifacts import download_artifacts
 import torch
 
-client = MlflowClient()
+!rm -rf /tmp/model && mkdir -p /tmp/model
 
-!mkdir /tmp/model
-
-#client.download_artifacts(
-#  run_id = "8253d8f3392e4e09a7c03bde058fa4f0",
-#  path = "checkpoint-3000",
-#  dst_path = "/tmp/model/"
-#)
+download_artifacts(
+  run_id = "4cf4fc4957644a56b1b81c3beccb0d9c",
+  artifact_path = "checkpoint-26000",
+  dst_path = "/tmp/model/"
+)
 
 # COMMAND ----------
 
-TARGET_DIR = "/dbfs/tmp/persuasion4good/trainer/checkpoint-1000/"
+TARGET_DIR = "/tmp/model/checkpoint-26000/artifacts/checkpoint-26000"
 !ls {TARGET_DIR}
 
 # COMMAND ----------
@@ -35,7 +33,7 @@ from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
 
 config = AutoConfig.from_pretrained(TARGET_DIR)
 model = AutoModelForCausalLM.from_pretrained(TARGET_DIR, config = config)
-tokenizer = AutoTokenizer.from_pretrained(TARGET_DIR, padding_side = "left")
+tokenizer = AutoTokenizer.from_pretrained(padding_side = "left", pretrained_model_name_or_path = "gpt2")
 
 model.to("cpu")
 
@@ -52,15 +50,15 @@ import numpy as np
 
 def generate(
   question,
-  max_new_tokens = 70,
-  chat_history_ids = [],
-  temperature = 1.0,
-  repetition_penalty = 20.0,
-  do_sample = False,
-  top_k = 10,
-  top_p = 0.75,
-  no_repeat_ngram_size = 3,
-  length_penalty = 100.0
+  num_beams = 10,
+  chat_history_ids = None,
+  max_new_tokens = 30, 
+  no_repeat_ngram_size = 3, 
+  do_sample = False, 
+  top_k = 10, 
+  top_p = 0.7,
+  repetition_penalty = 0.0,
+  temperature = 0.1
 ):
   """
     This function is a wrapper on top of our fine tuned model.
@@ -69,7 +67,7 @@ def generate(
   """
   
   new_user_input_ids = tokenizer.encode(
-    str(question) + str(tokenizer.eos_token),
+    str(tokenizer.eos_token) + str(question),
     return_tensors = 'pt'
   )
 
@@ -77,25 +75,28 @@ def generate(
 
   chat_history_tensor = torch.tensor(chat_history_ids)
   if (len(chat_history_ids) > 0):
-    # Beginning of conversation
+    # Continuing an existing conversation
     bot_input_ids = torch.cat([chat_history_tensor, torch.flatten(new_user_input_ids)], dim = -1)
     bot_input_ids = torch.reshape(bot_input_ids, shape = (1, -1))
   else:
-    # Continuing an existing conversation
+    # Beginning of conversation
     bot_input_ids = new_user_input_ids
-    
+
+  print("Bot input IDs: " + str(bot_input_ids))
+
   chat_history_ids = model.generate(
     bot_input_ids,
-    max_length = 200,
+    num_beams = num_beams,
+    max_new_tokens = max_new_tokens,
     pad_token_id = tokenizer.eos_token_id,  
-    no_repeat_ngram_size = 3,       
-    do_sample = True, 
-    top_k = 100, 
-    top_p = 0.7,
-    temperature = 0.8
+    no_repeat_ngram_size = no_repeat_ngram_size,       
+    do_sample = do_sample,
+    top_k = top_k, 
+    top_p = top_p,
+    temperature = temperature
   )
   
-  print(chat_history_ids)
+  print("History: " + str(chat_history_ids))
 
   # Using our tokenizer to decode the outputs from our model
   # (e.g. convert model outputs to text)
@@ -130,7 +131,7 @@ def predict(model_input):
 
 # COMMAND ----------
 
-question = "hello"
+question = "hi, can you tell me more about save the children?"
 
 model_input = {
   "question": question,
@@ -146,7 +147,7 @@ print("Answer: ", answer.split("   "))
 
 # COMMAND ----------
 
-question = "nothing planned, you?"
+question = "great, I would like to help"
 
 model_input = {
   "question": question,
@@ -162,7 +163,71 @@ print("Answer: ", answer)
 
 # COMMAND ----------
 
-question = "great, sounds fun."
+question = "ten dollars"
+
+model_input = {
+  "question": question,
+  "chat_history_ids": chat_history_ids
+}
+
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
+
+# COMMAND ----------
+
+question = "awesome, where do I sign?"
+
+model_input = {
+  "question": question,
+  "chat_history_ids": chat_history_ids
+}
+
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
+
+# COMMAND ----------
+
+question = "haha, how is that playing out?"
+
+model_input = {
+  "question": question,
+  "chat_history_ids": chat_history_ids
+}
+
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
+
+# COMMAND ----------
+
+question = "all right"
+
+model_input = {
+  "question": question,
+  "chat_history_ids": chat_history_ids
+}
+
+result = predict(model_input)
+answer = result["answer"]
+chat_history_ids = result["chat_history_ids"]
+
+print("Question: ", model_input["question"])
+print("Answer: ", answer)
+
+# COMMAND ----------
+
+question = "thanks, you too!"
 
 model_input = {
   "question": question,
